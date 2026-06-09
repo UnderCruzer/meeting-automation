@@ -1,0 +1,85 @@
+name: ✨ Feature Implementation
+description: New component or feature to implement
+title: "[FEAT] "
+labels: ["feature"]
+body:
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Layer
+      options:
+        - "Layer 1: Capture & Input"
+        - "Layer 2: Processing & Intelligence"
+        - "Layer 3: Outputs & Integration"
+        - "Layer 4: Operation & Governance"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component #
+      options:
+        - "01 - Calendar 감지"
+        - "02 - Slack DM 알림"
+        - "03 - 사용자 녹음 준비 승인"
+        - "04 - Recording Web Page"
+        - "05 - 오디오 캡처"
+        - "06 - 업로드 (원본 보관)"
+        - "07 - STT / Transcript 생성"
+        - "08 - Ingestion / Guard"
+        - "09 - AI Orchestrator"
+        - "10 - Bounded Retrieval"
+        - "11 - 회의분석 & 요약"
+        - "12 - Jira Matching & Draft"
+        - "13 - Confluence Draft"
+        - "14 - Slack Brief Draft"
+        - "15 - Human Review Queue"
+        - "16 - Human Approval Gate"
+        - "17 - Write Queue"
+        - "18 - Timezone Scheduler"
+        - "19 - Regional Slack Delivery"
+        - "20 - Brief / Digest 자동화"
+        - "21 - Follow-up Automation"
+        - "22 - Monitoring & Feedback"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: 이 컴포넌트가 무엇을 하는지 설명해주세요
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: 구현할 세부 항목들
+      placeholder: |
+        - [ ] 항목 1
+        - [ ] 항목 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      placeholder: |
+        - [ ] 조건 1
+        - [ ] 조건 2
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - "P0 - Critical (MVP)"
+        - "P1 - High"
+        - "P2 - Medium"
+        - "P3 - Low"
+    validations:
+      required: true
