@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Reque
 
 from app.models.meeting import MeetingMetadata, UploadResponse
 from app.services.guard import mask_transcript_segments, save_guard_report
+from app.services.orchestrator import analyse, save_analysis
 from app.services.stt import save_transcript, transcribe
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,14 @@ async def _run_stt_and_guard(
         # Persist guard report (masked text + match metadata)
         await save_guard_report(file_key, base_dir, all_matches, masked_full_text)
 
+        # AI analysis — pass masked text so PII never reaches Claude API
+        analysis = await analyse(transcript, masked_text=masked_full_text)
+        await save_analysis(analysis, file_key, base_dir)
+
         logger.info(
-            "[STT+Guard] %s — %d segments, %d PII masked, lang=%s",
-            meeting_id, len(transcript.segments), len(all_matches), transcript.language,
+            "[Pipeline] %s — %d segments, %d PII masked, routing=%s, confidence=%.2f",
+            meeting_id, len(transcript.segments), len(all_matches),
+            analysis.routing, analysis.confidence,
         )
     except Exception:
         logger.exception("[STT+Guard] Failed for %s", meeting_id)
