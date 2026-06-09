@@ -1,5 +1,5 @@
 const cron = require("node-cron");
-const { minutesUntilMeeting, toLocalTime, getUserTimezone } = require("./timezone");
+const { minutesUntilMeetingSec, toLocalTime, getUserTimezone } = require("./timezone");
 const { buildDmAlertMessage } = require("../messages/dmAlert");
 
 const ALERT_BEFORE_MINUTES = 5; // 회의 시작 N분 전에 DM 발송
@@ -22,18 +22,27 @@ function startScheduler(app, getMeetings) {
       for (const meeting of meetings) {
         const minutesLeft = minutesUntilMeeting(meeting.startTime);
 
-        // Send alert in the window: ALERT_BEFORE_MINUTES to ALERT_BEFORE_MINUTES+1
+        // Use seconds-precision diff to avoid integer truncation dropping boundary meetings.
+        // e.g. 4m59s → minutesLeftSec=299, threshold=300 → still within window.
+        const minutesLeftSec = minutesUntilMeetingSec(meeting.startTime);
+        const windowUpperSec = ALERT_BEFORE_MINUTES * 60;
+        const windowLowerSec = (ALERT_BEFORE_MINUTES - CHECK_INTERVAL_MINUTES) * 60;
         const inAlertWindow =
-          minutesLeft <= ALERT_BEFORE_MINUTES &&
-          minutesLeft > ALERT_BEFORE_MINUTES - CHECK_INTERVAL_MINUTES;
+          Number.isFinite(minutesLeftSec) &&
+          minutesLeftSec <= windowUpperSec &&
+          minutesLeftSec > windowLowerSec;
 
         if (!inAlertWindow || sentAlerts.has(meeting.id)) continue;
 
-        for (const attendeeSlackId of meeting.attendeeSlackIds) {
-          await sendDmAlert(app, attendeeSlackId, meeting);
-        }
+        const results = await Promise.allSettled(
+          meeting.attendeeSlackIds.map((id) => sendDmAlert(app, id, meeting))
+        );
 
-        sentAlerts.add(meeting.id);
+        const allFailed = results.every((r) => r.status === "rejected");
+        if (!allFailed) {
+          // Only mark as sent when at least one DM succeeded, allowing retry for full failures
+          sentAlerts.add(meeting.id);
+        }
       }
     } catch (err) {
       console.error("[Scheduler] Error checking meetings:", err.message);
