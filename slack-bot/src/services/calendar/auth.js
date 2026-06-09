@@ -67,8 +67,12 @@ async function exchangeCode(code) {
   return tokenStore;
 }
 
+// In-flight refresh promise — prevents concurrent refresh with stale refresh token
+let refreshInFlight = null;
+
 /**
- * Get a valid access token, refreshing if expired
+ * Get a valid access token, refreshing if expired.
+ * Concurrent callers share the same in-flight refresh promise.
  * @returns {string} access token
  */
 async function getAccessToken() {
@@ -78,9 +82,16 @@ async function getAccessToken() {
     return tokenStore.accessToken;
   }
 
-  // Refresh
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => { refreshInFlight = null; });
+  }
+
+  return refreshInFlight;
+}
+
+async function doRefresh() {
   const body = new URLSearchParams({
-    client_id: CLIENT_ID,
+    client_id: process.env.AZURE_CLIENT_ID,
     grant_type: "refresh_token",
     refresh_token: tokenStore.refreshToken,
     scope: SCOPES,
