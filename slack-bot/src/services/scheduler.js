@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const { minutesUntilMeetingSec, toLocalTime, getUserTimezone } = require("./timezone");
 const { buildDmAlertMessage } = require("../messages/dmAlert");
+const { isSkipped } = require("./sessionStore");
 
 const ALERT_BEFORE_MINUTES = 5; // 회의 시작 N분 전에 DM 발송
 const CHECK_INTERVAL_MINUTES = 1; // 매 N분마다 회의 체크
@@ -30,7 +31,7 @@ function startScheduler(app, getMeetings) {
           minutesLeftSec <= windowUpperSec &&
           minutesLeftSec > windowLowerSec;
 
-        if (!inAlertWindow || sentAlerts.has(meeting.id)) continue;
+        if (!inAlertWindow || sentAlerts.has(meeting.id) || isSkipped(meeting.id)) continue;
 
         const results = await Promise.allSettled(
           meeting.attendeeSlackIds.map((id) => sendDmAlert(app, id, meeting))
