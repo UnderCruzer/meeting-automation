@@ -123,6 +123,6 @@ async def save_guard_report(
             for m in matches
         ],
     }
-    report_path = base_dir / file_key.replace(".wav", ".guard.json")
+    report_path = base_dir / (file_key[:-4] + ".guard.json")
     async with aiofiles.open(report_path, "w", encoding="utf-8") as f:
         await f.write(json.dumps(report, ensure_ascii=False, indent=2))
