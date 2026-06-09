@@ -1,10 +1,13 @@
 import json
-import uuid
+import logging
+from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 
 from app.models.meeting import MeetingMetadata, UploadResponse
+from app.services.stt import save_transcript, transcribe
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_FILE_BYTES = 500 * 1024 * 1024  # 500 MB
@@ -13,16 +16,15 @@ MAX_FILE_BYTES = 500 * 1024 * 1024  # 500 MB
 @router.post("/upload", response_model=UploadResponse)
 async def upload_audio(
     request: Request,
+    background_tasks: BackgroundTasks,
     audio: UploadFile = File(...),
     metadata: str = Form(...),
 ) -> UploadResponse:
-    # Parse and validate metadata
     try:
         meta = MeetingMetadata.model_validate(json.loads(metadata))
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    # Read audio — enforce size limit without loading everything into memory first
     chunks: list[bytes] = []
     total = 0
     async for chunk in audio:
@@ -39,5 +41,17 @@ async def upload_audio(
     file_key = await storage.save_audio(audio_bytes, meta.meetingId)
     await storage.save_metadata(file_key, meta.model_dump())
 
+    audio_path = storage.base_dir / file_key
+    background_tasks.add_task(_run_stt, audio_path, file_key, meta.meetingId, storage.base_dir)
+
     job_id = file_key.split("/")[-1].replace(".wav", "")
     return UploadResponse(jobId=job_id, fileKey=file_key, meetingId=meta.meetingId)
+
+
+async def _run_stt(audio_path: Path, file_key: str, meeting_id: str, base_dir: Path) -> None:
+    try:
+        transcript = await transcribe(audio_path, meeting_id)
+        await save_transcript(transcript, file_key, base_dir)
+        logger.info("[STT] %s — %s words, lang=%s", meeting_id, len(transcript.segments), transcript.language)
+    except Exception:
+        logger.exception("[STT] Failed for %s", meeting_id)
