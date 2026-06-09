@@ -152,8 +152,18 @@ async function uploadAudio(blob: Blob, meta: MeetingMeta): Promise<void> {
     location: meta.location,
   }));
 
-  const res = await fetch(`${apiUrl}/upload`, { method: "POST", body: form });
-  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  // Retry up to 3 times with exponential backoff (network hiccups after long meetings)
+  const MAX_RETRIES = 3;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${apiUrl}/upload`, { method: "POST", body: form });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+      return;
+    } catch (err) {
+      if (attempt === MAX_RETRIES) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+    }
+  }
 }
 
 const styles: Record<string, React.CSSProperties> = {
