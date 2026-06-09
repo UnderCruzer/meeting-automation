@@ -1,9 +1,11 @@
 /**
- * Calculate seconds until a UTC datetime string
- * Returns negative if past
+ * Calculate seconds until a UTC datetime string.
+ * Returns NaN for invalid input — callers should guard with Number.isFinite().
  */
 export function secondsUntil(utcIso: string): number {
-  return Math.floor((new Date(utcIso).getTime() - Date.now()) / 1000);
+  const ms = new Date(utcIso).getTime();
+  if (isNaN(ms)) return NaN;
+  return Math.floor((ms - Date.now()) / 1000);
 }
 
 export function formatTime(utcIso: string, timeZone?: string): string {

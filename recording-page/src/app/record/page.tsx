@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRecorder } from "@/hooks/useRecorder";
 import { useCountdown } from "@/hooks/useCountdown";
@@ -8,8 +8,6 @@ import { MeetingInfo } from "@/components/MeetingInfo";
 import { RecordButton } from "@/components/RecordButton";
 import { formatTime } from "@/lib/meetingTime";
 
-// Meeting metadata passed via query string from Slack DM link
-// Real data comes from the backend (issue-06) — for now parsed from URL
 interface MeetingMeta {
   id: string;
   title: string;
@@ -18,18 +16,25 @@ interface MeetingMeta {
   location: string;
 }
 
-function parseMeta(params: URLSearchParams): MeetingMeta | null {
-  const id = params.get("meetingId");
-  const title = params.get("title");
-  const startTime = params.get("startTime");
-  const endTime = params.get("endTime");
-  if (!id || !startTime || !endTime) return null;
-  return { id, title: title ?? "(제목 없음)", startTime, endTime, location: params.get("location") ?? "" };
-}
-
 export default function RecordPage() {
   const params = useSearchParams();
-  const meta = parseMeta(params);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Memoize meta so object identity is stable across re-renders (fixes auto-stop timeout reset)
+  const meta = useMemo<MeetingMeta | null>(() => {
+    const id = params.get("meetingId");
+    const startTime = params.get("startTime");
+    const endTime = params.get("endTime");
+    if (!id || !startTime || !endTime) return null;
+    return {
+      id,
+      title: params.get("title") ?? "(제목 없음)",
+      startTime,
+      endTime,
+      location: params.get("location") ?? "",
+    };
+  }, [params]);
+
   const { status, error, audioBlob, requestMic, startRecording, stopRecording } = useRecorder();
   const startedRef = useRef(false);
 
@@ -44,20 +49,22 @@ export default function RecordPage() {
     handleCountdownZero,
   );
 
-  // Auto-stop when meeting end time is reached
+  // Auto-stop at meeting end time — depends on stable primitive string, not object
+  const endTime = meta?.endTime ?? null;
   useEffect(() => {
-    if (!meta?.endTime || status !== "recording") return;
-    const msLeft = new Date(meta.endTime).getTime() - Date.now();
+    if (!endTime || status !== "recording") return;
+    const msLeft = new Date(endTime).getTime() - Date.now();
     if (msLeft <= 0) { stopRecording(); return; }
     const id = setTimeout(stopRecording, msLeft);
     return () => clearTimeout(id);
-  }, [meta?.endTime, status, stopRecording]);
+  }, [endTime, status, stopRecording]);
 
-  // Trigger upload when recording stops (issue-06)
+  // Upload when recording stops — audioBlob and status are now set atomically in onstop
   useEffect(() => {
-    if (status === "stopped" && audioBlob && meta) {
-      uploadAudio(audioBlob, meta);
-    }
+    if (status !== "stopped" || !audioBlob || !meta) return;
+    uploadAudio(audioBlob, meta).catch((err) => {
+      setUploadError(err instanceof Error ? err.message : "업로드 실패");
+    });
   }, [status, audioBlob, meta]);
 
   if (!meta) {
@@ -69,43 +76,53 @@ export default function RecordPage() {
   }
 
   return (
-    <main style={styles.main}>
-      <h1 style={styles.heading}>🎙️ 회의 녹음</h1>
+    <>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
+      <main style={styles.main}>
+        <h1 style={styles.heading}>🎙️ 회의 녹음</h1>
 
-      <MeetingInfo
-        title={meta.title}
-        startTime={meta.startTime}
-        endTime={meta.endTime}
-        location={meta.location}
-      />
+        <MeetingInfo
+          title={meta.title}
+          startTime={meta.startTime}
+          endTime={meta.endTime}
+          location={meta.location}
+        />
 
-      {/* Status indicator */}
-      <div style={styles.statusRow}>
-        {status === "recording" && (
-          <span style={styles.recBadge}>● REC</span>
-        )}
-        {status === "ready" && secondsLeft > 0 && (
-          <span style={styles.countdown}>
-            {formatTime(meta.startTime)} 시작까지 {secondsLeft}초
-          </span>
-        )}
-        {status === "stopped" && (
-          <span style={{ color: "#40c057", fontWeight: 600 }}>✅ 녹음 완료 — 업로드 중...</span>
-        )}
-      </div>
+        <div style={styles.statusRow}>
+          {status === "recording" && (
+            <span style={styles.recBadge}>● REC</span>
+          )}
+          {status === "ready" && secondsLeft > 0 && (
+            <span style={styles.countdown}>
+              {formatTime(meta.startTime)} 시작까지 {secondsLeft}초
+            </span>
+          )}
+          {status === "stopped" && !uploadError && (
+            <span style={{ color: "#40c057", fontWeight: 600 }}>✅ 녹음 완료 — 업로드 중...</span>
+          )}
+          {uploadError && (
+            <span style={{ color: "#fa5252", fontWeight: 600 }}>⚠️ 업로드 실패: {uploadError}</span>
+          )}
+        </div>
 
-      {error && <p style={styles.error}>{error}</p>}
+        {error && <p style={styles.error}>{error}</p>}
 
-      <RecordButton
-        status={status}
-        onRequestMic={requestMic}
-        onStop={stopRecording}
-      />
-    </main>
+        <RecordButton
+          status={status}
+          onRequestMic={requestMic}
+          onStop={stopRecording}
+        />
+      </main>
+    </>
   );
 }
 
-async function uploadAudio(blob: Blob, meta: MeetingMeta) {
+async function uploadAudio(blob: Blob, meta: MeetingMeta): Promise<void> {
   const apiUrl = process.env.NEXT_PUBLIC_UPLOAD_API_URL ?? "http://localhost:8000";
   const form = new FormData();
   const ext = blob.type.includes("mp4") ? "mp4" : "webm";
@@ -118,13 +135,8 @@ async function uploadAudio(blob: Blob, meta: MeetingMeta) {
     location: meta.location,
   }));
 
-  try {
-    const res = await fetch(`${apiUrl}/upload`, { method: "POST", body: form });
-    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-    console.log("[Upload] Success");
-  } catch (err) {
-    console.error("[Upload] Error:", err);
-  }
+  const res = await fetch(`${apiUrl}/upload`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
 }
 
 const styles: Record<string, React.CSSProperties> = {

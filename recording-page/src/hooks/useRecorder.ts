@@ -19,23 +19,30 @@ export function useRecorder(): UseRecorderReturn {
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const statusRef = useRef<RecorderStatus>("idle");
+
+  const setStatusSync = (s: RecorderStatus) => {
+    statusRef.current = s;
+    setStatus(s);
+  };
 
   const requestMic = useCallback(async () => {
-    setStatus("requesting");
+    setStatusSync("requesting");
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      setStatus("ready");
+      setStatusSync("ready");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "마이크 권한을 허용해주세요.";
       setError(msg);
-      setStatus("error");
+      setStatusSync("error");
     }
   }, []);
 
   const startRecording = useCallback(() => {
-    if (!streamRef.current || status !== "ready") return;
+    // Use ref to avoid stale closure on status
+    if (!streamRef.current || statusRef.current !== "ready") return;
 
     chunksRef.current = [];
     const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -46,20 +53,22 @@ export function useRecorder(): UseRecorderReturn {
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
+    // Set status AFTER blob is ready so upload effect sees both atomically
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: mimeType });
-      setAudioBlob(blob);
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      setAudioBlob(blob);
+      setStatusSync("stopped");
     };
 
-    recorder.start(1000); // collect chunks every 1s
+    recorder.start(1000);
     recorderRef.current = recorder;
-    setStatus("recording");
-  }, [status]);
+    setStatusSync("recording");
+  }, []); // no status dep — reads from statusRef
 
   const stopRecording = useCallback(() => {
     recorderRef.current?.stop();
-    setStatus("stopped");
+    // status is set in onstop handler after blob is ready
   }, []);
 
   return { status, error, audioBlob, requestMic, startRecording, stopRecording };
