@@ -17,8 +17,8 @@ async function fetchUpcomingEvents(hoursAhead = 2) {
     startDateTime: now.toISOString(),
     endDateTime: end.toISOString(),
     $select: "id,subject,start,end,location,attendees,isOnlineMeeting,onlineMeeting",
-    $orderby: "start/dateTime",
     $top: "20",
+    // $orderby is not supported on calendarView — results are already ordered by start time
   });
 
   const res = await fetch(`${GRAPH_BASE}/me/calendarView?${params}`, {
