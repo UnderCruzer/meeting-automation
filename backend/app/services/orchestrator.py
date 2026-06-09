@@ -99,7 +99,7 @@ async def analyse(
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
 
-    text = masked_text or transcript.full_text
+    text = masked_text if masked_text is not None else transcript.full_text
     if not text.strip():
         raise ValueError("Transcript is empty — cannot analyse")
 
@@ -131,7 +131,7 @@ async def analyse(
 
 async def save_analysis(analysis: OrchestratorOutput, file_key: str, base_dir: Path) -> Path:
     """Persist analysis JSON alongside the audio file."""
-    analysis_path = base_dir / file_key.replace(".wav", ".analysis.json")
+    analysis_path = base_dir / (file_key[:-4] + ".analysis.json")
     content = json.dumps(analysis.model_dump(), ensure_ascii=False, indent=2)
     async with aiofiles.open(analysis_path, "w", encoding="utf-8") as f:
         await f.write(content)
