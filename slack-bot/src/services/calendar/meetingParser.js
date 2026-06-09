@@ -20,14 +20,20 @@ function normalize(event) {
   return {
     id: event.id,
     title: event.subject ?? "(제목 없음)",
-    startTime: event.start.dateTime + "Z", // Graph returns UTC without Z
-    endTime: event.end.dateTime + "Z",
+    startTime: toUtcIso(event.start.dateTime),
+    endTime: toUtcIso(event.end.dateTime),
     location: event.location?.displayName ?? "",
     timezone: event.start.timeZone ?? "UTC",
     attendeeEmails: (event.attendees ?? []).map((a) => a.emailAddress?.address).filter(Boolean),
     // Slack IDs resolved separately via email lookup
     attendeeSlackIds: [],
   };
+}
+
+// Append Z only if Graph returned dateTime without timezone suffix (non-UTC calendars)
+function toUtcIso(dateTime) {
+  if (!dateTime) return dateTime;
+  return dateTime.endsWith("Z") ? dateTime : dateTime + "Z";
 }
 
 module.exports = { parseOfflineMeetings };
