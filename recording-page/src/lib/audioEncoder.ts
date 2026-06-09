@@ -7,14 +7,15 @@ export async function encodeToWav(
   blob: Blob,
   targetSampleRate = 16_000,
 ): Promise<Blob> {
+  // Decode with a throw-away context to get duration, then resample via OfflineAudioContext
   const arrayBuffer = await blob.arrayBuffer();
-  const ctx = new OfflineAudioContext(1, 1, targetSampleRate);
-  const decoded = await ctx.decodeAudioData(arrayBuffer);
+  const probe = new OfflineAudioContext(1, 1, targetSampleRate);
+  const decoded = await probe.decodeAudioData(arrayBuffer);
 
-  // Mixdown to mono and resample via OfflineAudioContext
+  // Mixdown to mono and resample
   const mono = new OfflineAudioContext(
     1,
-    Math.ceil((decoded.duration * targetSampleRate)),
+    Math.ceil(decoded.duration * targetSampleRate),
     targetSampleRate,
   );
   const src = mono.createBufferSource();
