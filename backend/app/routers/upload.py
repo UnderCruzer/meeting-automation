@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Reque
 from app.models.meeting import MeetingMetadata, UploadResponse
 from app.services.guard import mask_transcript_segments, save_guard_report
 from app.services.orchestrator import analyse, save_analysis
+from app.services.retrieval import retrieve_context
 from app.services.stt import save_transcript, transcribe
 
 logger = logging.getLogger(__name__)
@@ -72,10 +73,14 @@ async def _run_stt_and_guard(
         analysis = await analyse(transcript, masked_text=masked_full_text)
         await save_analysis(analysis, file_key, base_dir)
 
+        # Bounded retrieval — fetch related Jira/Confluence/Slack context
+        context = await retrieve_context(analysis)
+
         logger.info(
-            "[Pipeline] %s — %d segments, %d PII masked, routing=%s, confidence=%.2f",
+            "[Pipeline] %s — %d segments, %d PII masked, routing=%s, confidence=%.2f, retrieved=%d items from %s",
             meeting_id, len(transcript.segments), len(all_matches),
             analysis.routing, analysis.confidence,
+            len(context.items), context.sources_searched,
         )
     except Exception:
         logger.exception("[STT+Guard] Failed for %s", meeting_id)
