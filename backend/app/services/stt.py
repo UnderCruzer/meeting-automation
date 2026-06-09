@@ -6,21 +6,25 @@ Fallback: openai-whisper local model (requires `pip install openai-whisper` + ff
 
 Set STT_BACKEND=local in .env to force local model.
 """
+import asyncio
+import functools
 import json
 import logging
 import os
 from pathlib import Path
 
+import aiofiles
+
 from app.models.transcript import TranscriptResult, TranscriptSegment
 
 logger = logging.getLogger(__name__)
 
-_STT_BACKEND = os.getenv("STT_BACKEND", "whisper-api")
-
 
 async def transcribe(audio_path: Path, meeting_id: str) -> TranscriptResult:
     """Transcribe a WAV file and return a structured TranscriptResult."""
-    if _STT_BACKEND == "local":
+    # Read env at call time so .env loaded via lifespan is visible
+    backend = os.getenv("STT_BACKEND", "whisper-api")
+    if backend == "local":
         return await _transcribe_local(audio_path, meeting_id)
     try:
         return await _transcribe_api(audio_path, meeting_id)
@@ -39,14 +43,19 @@ async def _transcribe_api(audio_path: Path, meeting_id: str) -> TranscriptResult
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set")
 
+    # Read file in executor to avoid blocking the event loop on large WAV
+    audio_bytes = await asyncio.get_event_loop().run_in_executor(
+        None, audio_path.read_bytes
+    )
+
     client = AsyncOpenAI(api_key=api_key)
-    with open(audio_path, "rb") as f:
-        response = await client.audio.transcriptions.create(
-            model="whisper-1",
-            file=f,
-            response_format="verbose_json",
-            timestamp_granularities=["segment"],
-        )
+    import io
+    response = await client.audio.transcriptions.create(
+        model="whisper-1",
+        file=("recording.wav", io.BytesIO(audio_bytes), "audio/wav"),
+        response_format="verbose_json",
+        timestamp_granularities=["segment"],
+    )
 
     segments = [
         TranscriptSegment(
@@ -70,9 +79,6 @@ async def _transcribe_api(audio_path: Path, meeting_id: str) -> TranscriptResult
 
 async def _transcribe_local(audio_path: Path, meeting_id: str) -> TranscriptResult:
     """Run openai-whisper in a thread so it doesn't block the event loop."""
-    import asyncio
-    import functools
-
     try:
         import whisper  # type: ignore
     except ImportError:
@@ -113,10 +119,9 @@ async def _transcribe_local(audio_path: Path, meeting_id: str) -> TranscriptResu
 
 
 async def save_transcript(transcript: TranscriptResult, audio_file_key: str, base_dir: Path) -> Path:
-    """Save transcript JSON alongside the audio file."""
+    """Save transcript JSON alongside the audio file (async to avoid blocking event loop)."""
     transcript_path = base_dir / audio_file_key.replace(".wav", ".transcript.json")
-    transcript_path.write_text(
-        json.dumps(transcript.model_dump(), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    content = json.dumps(transcript.model_dump(), ensure_ascii=False, indent=2)
+    async with aiofiles.open(transcript_path, "w", encoding="utf-8") as f:
+        await f.write(content)
     return transcript_path
