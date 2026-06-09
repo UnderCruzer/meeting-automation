@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 
 from app.models.meeting import MeetingMetadata, UploadResponse
+from app.services.guard import mask_transcript_segments, save_guard_report
 from app.services.stt import save_transcript, transcribe
 
 logger = logging.getLogger(__name__)
@@ -42,16 +43,33 @@ async def upload_audio(
     await storage.save_metadata(file_key, meta.model_dump())
 
     audio_path = storage.base_dir / file_key
-    background_tasks.add_task(_run_stt, audio_path, file_key, meta.meetingId, storage.base_dir)
+    background_tasks.add_task(_run_stt_and_guard, audio_path, file_key, meta.meetingId, storage.base_dir)
 
     job_id = file_key.split("/")[-1].replace(".wav", "")
     return UploadResponse(jobId=job_id, fileKey=file_key, meetingId=meta.meetingId)
 
 
-async def _run_stt(audio_path: Path, file_key: str, meeting_id: str, base_dir: Path) -> None:
+async def _run_stt_and_guard(
+    audio_path: Path, file_key: str, meeting_id: str, base_dir: Path
+) -> None:
     try:
         transcript = await transcribe(audio_path, meeting_id)
+
+        # Mask PII in each segment
+        masked_segments_raw, all_matches = mask_transcript_segments(
+            [seg.model_dump() for seg in transcript.segments]
+        )
+        masked_full_text = " ".join(s["text"] for s in masked_segments_raw)
+
+        # Persist original transcript (contains raw text — treat as sensitive)
         await save_transcript(transcript, file_key, base_dir)
-        logger.info("[STT] %s — %s words, lang=%s", meeting_id, len(transcript.segments), transcript.language)
+
+        # Persist guard report (masked text + match metadata)
+        await save_guard_report(file_key, base_dir, all_matches, masked_full_text)
+
+        logger.info(
+            "[STT+Guard] %s — %d segments, %d PII masked, lang=%s",
+            meeting_id, len(transcript.segments), len(all_matches), transcript.language,
+        )
     except Exception:
-        logger.exception("[STT] Failed for %s", meeting_id)
+        logger.exception("[STT+Guard] Failed for %s", meeting_id)
