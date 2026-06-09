@@ -1,38 +1,41 @@
 require("dotenv").config();
-const { App } = require("@slack/bolt");
+const express = require("express");
+const { App, ExpressReceiver } = require("@slack/bolt");
 
 process.on("unhandledRejection", (reason) => {
   console.error("[Process] Unhandled rejection:", reason);
 });
+
 const { registerActionHandlers } = require("./handlers/actions");
 const { startScheduler } = require("./services/scheduler");
+const { getMeetings } = require("./services/calendar");
+const { registerAuthRoutes } = require("./routes/auth");
+const { isAuthenticated } = require("./services/calendar/auth");
+
+// ExpressReceiver handles HTTP (OAuth routes).
+// socketMode:true connects to Slack over WebSocket — no conflict when receiver is also provided.
+const receiver = new ExpressReceiver({
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+});
 
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   appToken: process.env.SLACK_APP_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  receiver,
   socketMode: true,
 });
 
 registerActionHandlers(app);
-
-// Stub: replace with real calendar integration (issue-01)
-async function getMeetings() {
-  return [
-    // {
-    //   id: "meeting-001",
-    //   title: "GPD2 주간 회의",
-    //   startTime: "2026-06-09T06:00:00Z", // UTC
-    //   endTime: "2026-06-09T07:00:00Z",
-    //   location: "미팅룸 A",
-    //   attendeeSlackIds: ["U_EXAMPLE_ID"],
-    // },
-  ];
-}
+registerAuthRoutes(receiver.router);
 
 (async () => {
-  await app.start();
-  console.log("[App] Slack bot started (Socket Mode)");
+  await app.start(process.env.PORT || 3000);
+  console.log("[App] Slack bot started on port", process.env.PORT || 3000);
 
-  startScheduler(app, getMeetings);
+  if (!isAuthenticated()) {
+    console.log("[App] Microsoft 인증 필요 → 브라우저에서 http://localhost:3000/auth/login 접속");
+  }
+
+  // Only start scheduler after auth is confirmed; otherwise guard inside getMeetings handles it
+  startScheduler(app, () => getMeetings(app.client));
 })();

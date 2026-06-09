@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@slack/bolt": "^3.21.1",
+    "express": "^4.21.2",
     "dayjs": "^1.11.13",
     "dayjs-timezone-iana-plugin": "^0.2.1",
     "dotenv": "^16.4.5",
