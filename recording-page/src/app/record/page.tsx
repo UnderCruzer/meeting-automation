@@ -152,17 +152,24 @@ async function uploadAudio(blob: Blob, meta: MeetingMeta): Promise<void> {
     location: meta.location,
   }));
 
-  // Retry up to 3 times with exponential backoff (network hiccups after long meetings)
+  // Retry up to 3 times with exponential backoff for network errors and 5xx only
   const MAX_RETRIES = 3;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let res: Response;
     try {
-      const res = await fetch(`${apiUrl}/upload`, { method: "POST", body: form });
-      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-      return;
-    } catch (err) {
-      if (attempt === MAX_RETRIES) throw err;
+      res = await fetch(`${apiUrl}/upload`, { method: "POST", body: form });
+    } catch (networkErr) {
+      // Network failure (offline, DNS, timeout) — always retry
+      if (attempt === MAX_RETRIES) throw networkErr;
       await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+      continue;
     }
+    if (res.ok) return;
+    // 4xx = client error (bad metadata, too large) — no point retrying
+    if (res.status < 500) throw new Error(`Upload failed: ${res.status}`);
+    // 5xx = server error — retry
+    if (attempt === MAX_RETRIES) throw new Error(`Upload failed: ${res.status}`);
+    await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
   }
 }
 
