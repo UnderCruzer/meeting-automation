@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRecorder } from "@/hooks/useRecorder";
 import { useCountdown } from "@/hooks/useCountdown";
+import { useWaveform } from "@/hooks/useWaveform";
 import { MeetingInfo } from "@/components/MeetingInfo";
 import { RecordButton } from "@/components/RecordButton";
 import { formatTime } from "@/lib/meetingTime";
@@ -21,7 +22,6 @@ export default function RecordPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadDone, setUploadDone] = useState(false);
 
-  // Memoize meta so object identity is stable across re-renders (fixes auto-stop timeout reset)
   const meta = useMemo<MeetingMeta | null>(() => {
     const id = params.get("meetingId");
     const startTime = params.get("startTime");
@@ -36,8 +36,11 @@ export default function RecordPage() {
     };
   }, [params]);
 
-  const { status, error, audioBlob, requestMic, startRecording, stopRecording } = useRecorder();
+  const { status, error, audioBlob, stream, requestMic, startRecording, stopRecording } = useRecorder();
   const startedRef = useRef(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useWaveform(canvasRef, stream, status === "recording");
 
   const handleCountdownZero = useCallback(() => {
     if (startedRef.current) return;
@@ -50,7 +53,6 @@ export default function RecordPage() {
     handleCountdownZero,
   );
 
-  // Auto-stop at meeting end time — depends on stable primitive string, not object
   const endTime = meta?.endTime ?? null;
   useEffect(() => {
     if (!endTime || status !== "recording") return;
@@ -60,7 +62,6 @@ export default function RecordPage() {
     return () => clearTimeout(id);
   }, [endTime, status, stopRecording]);
 
-  // Upload when recording stops — audioBlob and status are now set atomically in onstop
   useEffect(() => {
     if (status !== "stopped" || !audioBlob || !meta) return;
     uploadAudio(audioBlob, meta)
@@ -96,9 +97,20 @@ export default function RecordPage() {
           location={meta.location}
         />
 
+        <canvas
+          ref={canvasRef}
+          width={432}
+          height={64}
+          style={styles.waveform}
+          aria-label="오디오 파형"
+        />
+
         <div style={styles.statusRow}>
           {status === "recording" && (
             <span style={styles.recBadge}>● REC</span>
+          )}
+          {status === "encoding" && (
+            <span style={{ color: "#868e96", fontWeight: 600 }}>WAV 변환 중...</span>
           )}
           {status === "ready" && secondsLeft > 0 && (
             <span style={styles.countdown}>
@@ -131,8 +143,7 @@ export default function RecordPage() {
 async function uploadAudio(blob: Blob, meta: MeetingMeta): Promise<void> {
   const apiUrl = process.env.NEXT_PUBLIC_UPLOAD_API_URL ?? "http://localhost:8000";
   const form = new FormData();
-  const ext = blob.type.includes("mp4") ? "mp4" : "webm";
-  form.append("audio", blob, `recording.${ext}`);
+  form.append("audio", blob, "recording.wav");
   form.append("metadata", JSON.stringify({
     meetingId: meta.id,
     title: meta.title,
@@ -154,6 +165,14 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#212529",
   },
   heading: { fontSize: 24, fontWeight: 700, marginBottom: 24 },
+  waveform: {
+    display: "block",
+    width: "100%",
+    height: 64,
+    borderRadius: 8,
+    background: "#f8f9fa",
+    marginBottom: 16,
+  },
   statusRow: { minHeight: 32, marginBottom: 20, display: "flex", alignItems: "center" },
   recBadge: {
     background: "#fa5252",
