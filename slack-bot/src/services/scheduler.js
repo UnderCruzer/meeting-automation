@@ -20,8 +20,6 @@ function startScheduler(app, getMeetings) {
       const meetings = await getMeetings();
 
       for (const meeting of meetings) {
-        const minutesLeft = minutesUntilMeeting(meeting.startTime);
-
         // Use seconds-precision diff to avoid integer truncation dropping boundary meetings.
         // e.g. 4m59s → minutesLeftSec=299, threshold=300 → still within window.
         const minutesLeftSec = minutesUntilMeetingSec(meeting.startTime);
