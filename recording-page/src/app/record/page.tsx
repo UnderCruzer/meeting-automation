@@ -19,6 +19,7 @@ interface MeetingMeta {
 export default function RecordPage() {
   const params = useSearchParams();
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadDone, setUploadDone] = useState(false);
 
   // Memoize meta so object identity is stable across re-renders (fixes auto-stop timeout reset)
   const meta = useMemo<MeetingMeta | null>(() => {
@@ -62,9 +63,11 @@ export default function RecordPage() {
   // Upload when recording stops — audioBlob and status are now set atomically in onstop
   useEffect(() => {
     if (status !== "stopped" || !audioBlob || !meta) return;
-    uploadAudio(audioBlob, meta).catch((err) => {
-      setUploadError(err instanceof Error ? err.message : "업로드 실패");
-    });
+    uploadAudio(audioBlob, meta)
+      .then(() => setUploadDone(true))
+      .catch((err) => {
+        setUploadError(err instanceof Error ? err.message : "업로드 실패");
+      });
   }, [status, audioBlob, meta]);
 
   if (!meta) {
@@ -102,8 +105,11 @@ export default function RecordPage() {
               {formatTime(meta.startTime)} 시작까지 {secondsLeft}초
             </span>
           )}
-          {status === "stopped" && !uploadError && (
-            <span style={{ color: "#40c057", fontWeight: 600 }}>✅ 녹음 완료 — 업로드 중...</span>
+          {status === "stopped" && !uploadError && !uploadDone && (
+            <span style={{ color: "#868e96", fontWeight: 600 }}>업로드 중...</span>
+          )}
+          {uploadDone && !uploadError && (
+            <span style={{ color: "#40c057", fontWeight: 600 }}>✅ 업로드 완료</span>
           )}
           {uploadError && (
             <span style={{ color: "#fa5252", fontWeight: 600 }}>⚠️ 업로드 실패: {uploadError}</span>
