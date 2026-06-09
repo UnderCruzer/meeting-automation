@@ -4,6 +4,7 @@ Bounded Retrieval — fetch related context from Jira, Confluence, Slack.
 Each retriever is bounded to a configured scope (project/space/channel).
 Credentials are read from environment variables at call time.
 """
+import asyncio
 import logging
 import os
 from base64 import b64encode
@@ -23,32 +24,33 @@ _SLACK_MAX = 10
 
 async def retrieve_context(analysis: OrchestratorOutput) -> RetrievalContext:
     """
-    Run bounded searches for each routing target in the analysis.
+    Run bounded searches concurrently for each routing target.
     Returns a combined RetrievalContext regardless of which sources fail.
     """
     keywords = _build_keywords(analysis)
     routing = set(analysis.routing)
-    items: list[RetrievalItem] = []
-    searched: list[str] = []
 
     async with httpx.AsyncClient(timeout=15) as client:
+        tasks = {}
         if "jira" in routing:
-            results, ok = await _search_jira(client, keywords)
-            items.extend(results)
-            if ok:
-                searched.append("jira")
-
+            tasks["jira"] = _search_jira(client, keywords)
         if "confluence" in routing:
-            results, ok = await _search_confluence(client, keywords)
-            items.extend(results)
-            if ok:
-                searched.append("confluence")
-
+            tasks["confluence"] = _search_confluence(client, keywords)
         if "slack" in routing:
-            results, ok = await _search_slack(client, keywords)
-            items.extend(results)
-            if ok:
-                searched.append("slack")
+            tasks["slack"] = _search_slack(client, keywords)
+
+        if not tasks:
+            return RetrievalContext(meeting_id=analysis.meeting_id, items=[], sources_searched=[])
+
+        names = list(tasks.keys())
+        results = await asyncio.gather(*tasks.values())
+
+    items: list[RetrievalItem] = []
+    searched: list[str] = []
+    for name, (source_items, ok) in zip(names, results):
+        items.extend(source_items)
+        if ok:
+            searched.append(name)
 
     return RetrievalContext(
         meeting_id=analysis.meeting_id,
@@ -62,7 +64,9 @@ def _build_keywords(analysis: OrchestratorOutput) -> str:
     parts: list[str] = []
     parts.extend(analysis.topics[:3])
     parts.extend(item.description[:60] for item in analysis.action_items[:2])
-    return " ".join(parts)[:200]  # Jira/Confluence JQL text limit
+    # Strip double-quotes so keywords can be safely embedded in JQL/CQL text ~ "..."
+    raw = " ".join(parts)[:200]
+    return raw.replace('"', "'")
 
 
 async def _search_jira(
