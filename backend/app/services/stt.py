@@ -120,7 +120,7 @@ async def _transcribe_local(audio_path: Path, meeting_id: str) -> TranscriptResu
 
 async def save_transcript(transcript: TranscriptResult, audio_file_key: str, base_dir: Path) -> Path:
     """Save transcript JSON alongside the audio file (async to avoid blocking event loop)."""
-    transcript_path = base_dir / audio_file_key.replace(".wav", ".transcript.json")
+    transcript_path = base_dir / (audio_file_key[:-4] + ".transcript.json")
     content = json.dumps(transcript.model_dump(), ensure_ascii=False, indent=2)
     async with aiofiles.open(transcript_path, "w", encoding="utf-8") as f:
         await f.write(content)
