@@ -1,5 +1,9 @@
 require("dotenv").config();
 const { App } = require("@slack/bolt");
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[Process] Unhandled rejection:", reason);
+});
 const { registerActionHandlers } = require("./handlers/actions");
 const { startScheduler } = require("./services/scheduler");
 
