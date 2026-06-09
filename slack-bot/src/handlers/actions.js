@@ -1,13 +1,20 @@
-const { approve, skip } = require("../services/sessionStore");
-
-const RECORDING_PAGE_BASE_URL = process.env.RECORDING_PAGE_URL || "http://localhost:3001";
+const { approve, skip, isApproved } = require("../services/sessionStore");
 
 /**
  * Register Slack action handlers for recording approval buttons
  * @param {Object} app - Slack Bolt app instance
  */
 function registerActionHandlers(app) {
+  // No-op handler to silence Bolt warnings from Slack's link_button action event
+  app.action("open_recording_page", async ({ ack }) => { await ack(); });
+
   app.action("approve_recording", handleAction("approve_recording", async ({ meetingId, userId, body, client }) => {
+    // Idempotency guard: Slack retries can fire this handler twice
+    if (isApproved(meetingId)) {
+      console.warn(`[Action] approve_recording: meeting ${meetingId} already approved, skipping duplicate`);
+      return;
+    }
+
     approve(meetingId, userId);
 
     await updateMessage(client, body, {
@@ -35,7 +42,8 @@ function registerActionHandlers(app) {
  * Send Recording Web Page link as a DM to the user
  */
 async function sendRecordingLink(client, userId, meetingId) {
-  const url = `${RECORDING_PAGE_BASE_URL}/record?meetingId=${encodeURIComponent(meetingId)}`;
+  const base = process.env.RECORDING_PAGE_URL || "http://localhost:3001";
+  const url = `${base}/record?meetingId=${encodeURIComponent(meetingId)}`;
 
   await client.chat.postMessage({
     channel: userId,
