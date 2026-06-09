@@ -11,6 +11,8 @@ const skippedMeetings = new Set();
 
 function approve(meetingId, userId) {
   sessions.set(meetingId, { status: "approved", userId, approvedAt: Date.now() });
+  // Clear skip state so scheduler can send the alert after re-approval
+  skippedMeetings.delete(meetingId);
 }
 
 function skip(meetingId, userId) {
@@ -26,4 +28,8 @@ function isSkipped(meetingId) {
   return skippedMeetings.has(meetingId);
 }
 
-module.exports = { approve, skip, getSession, isSkipped };
+function isApproved(meetingId) {
+  return sessions.get(meetingId)?.status === "approved";
+}
+
+module.exports = { approve, skip, isSkipped, isApproved };
