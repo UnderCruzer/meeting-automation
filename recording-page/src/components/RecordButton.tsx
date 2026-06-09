@@ -27,6 +27,9 @@ export function RecordButton({ status, onRequestMic, onStop }: RecordButtonProps
       </button>
     );
   }
+  if (status === "encoding") {
+    return <button style={{ ...styles.btn, background: "#868e96" }} disabled>🔄 WAV 변환 중...</button>;
+  }
   if (status === "stopped") {
     return <button style={{ ...styles.btn, background: "#40c057" }} disabled>✅ 녹음 완료</button>;
   }

@@ -1,11 +1,13 @@
 import { useCallback, useRef, useState } from "react";
+import { encodeToWav } from "@/lib/audioEncoder";
 
-export type RecorderStatus = "idle" | "requesting" | "ready" | "recording" | "stopped" | "error";
+export type RecorderStatus = "idle" | "requesting" | "ready" | "recording" | "encoding" | "stopped" | "error";
 
 export interface UseRecorderReturn {
   status: RecorderStatus;
   error: string | null;
   audioBlob: Blob | null;
+  stream: MediaStream | null;
   requestMic: () => Promise<void>;
   startRecording: () => void;
   stopRecording: () => void;
@@ -15,6 +17,7 @@ export function useRecorder(): UseRecorderReturn {
   const [status, setStatus] = useState<RecorderStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -30,8 +33,12 @@ export function useRecorder(): UseRecorderReturn {
     setStatusSync("requesting");
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      // 16kHz mono preferred for STT compatibility
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: 16_000, channelCount: 1, echoCancellation: true },
+      });
+      streamRef.current = mediaStream;
+      setStream(mediaStream);
       setStatusSync("ready");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "마이크 권한을 허용해주세요.";
@@ -41,7 +48,6 @@ export function useRecorder(): UseRecorderReturn {
   }, []);
 
   const startRecording = useCallback(() => {
-    // Use ref to avoid stale closure on status
     if (!streamRef.current || statusRef.current !== "ready") return;
 
     chunksRef.current = [];
@@ -53,23 +59,33 @@ export function useRecorder(): UseRecorderReturn {
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
-    // Set status AFTER blob is ready so upload effect sees both atomically
     recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: mimeType });
+      const rawBlob = new Blob(chunksRef.current, { type: mimeType });
       streamRef.current?.getTracks().forEach((t) => t.stop());
-      setAudioBlob(blob);
-      setStatusSync("stopped");
+      setStream(null);
+
+      // Re-encode to 16kHz mono WAV for STT compatibility
+      setStatusSync("encoding");
+      encodeToWav(rawBlob, 16_000)
+        .then((wavBlob) => {
+          setAudioBlob(wavBlob);
+          setStatusSync("stopped");
+        })
+        .catch(() => {
+          // Fallback: use raw blob if WAV encoding fails
+          setAudioBlob(rawBlob);
+          setStatusSync("stopped");
+        });
     };
 
     recorder.start(1000);
     recorderRef.current = recorder;
     setStatusSync("recording");
-  }, []); // no status dep — reads from statusRef
+  }, []);
 
   const stopRecording = useCallback(() => {
     recorderRef.current?.stop();
-    // status is set in onstop handler after blob is ready
   }, []);
 
-  return { status, error, audioBlob, requestMic, startRecording, stopRecording };
+  return { status, error, audioBlob, stream, requestMic, startRecording, stopRecording };
 }
