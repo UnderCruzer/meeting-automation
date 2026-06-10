@@ -52,6 +52,12 @@ async def start_worker() -> None:
 
 
 async def _dispatch(task: WriteTask) -> None:
+    # Honour cancellation from timezone_scheduler.cancel_scheduled()
+    if task.schedule_time == "cancelled":
+        logger.info("[WriteQueue] Skipping cancelled task %s:%s", task.job_id, task.artifact)
+        await _write_audit(task, success=False, detail={"error": "cancelled"})
+        return
+
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             if task.artifact == "jira":
