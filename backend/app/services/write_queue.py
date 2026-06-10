@@ -26,6 +26,7 @@ _MAX_RETRIES = 3
 @dataclass
 class WriteTask:
     job_id: str
+    meeting_id: str      # needed for audit log path (mirrors draft file layout)
     artifact: str        # "jira" | "confluence" | "slack"
     payload: dict        # draft content
     base_dir: Path
@@ -166,7 +167,8 @@ async def _publish_slack(payload: dict) -> dict:
 
 
 async def _write_audit(task: WriteTask, success: bool, detail: Any) -> None:
-    audit_path = task.base_dir / task.job_id[:8] / "audit.jsonl"
+    # fix: was task.job_id[:8] — unrelated dir; use meeting_id subdir to match draft file layout
+    audit_path = task.base_dir / task.meeting_id / "audit.jsonl"
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
