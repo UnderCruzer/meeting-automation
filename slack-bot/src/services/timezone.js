@@ -18,13 +18,21 @@ function toLocalTime(utcDatetime, userTimezone) {
 }
 
 /**
- * Get user's timezone from Slack API response
- * Fallback to "Asia/Seoul" if not set
+ * Get user's timezone from Slack API response.
+ * Falls back to DEFAULT_TIMEZONE env var (default "Asia/Seoul") if tz is not set.
+ * Logs a warning so non-Korean users with missing tz don't silently get KST.
  * @param {Object} slackUserInfo - result of users.info API
  * @returns {string} IANA timezone string
  */
 function getUserTimezone(slackUserInfo) {
-  return slackUserInfo?.tz || "Asia/Seoul";
+  if (slackUserInfo?.tz) return slackUserInfo.tz;
+  const fallback = process.env.DEFAULT_TIMEZONE || "Asia/Seoul";
+  const userId = slackUserInfo?.id || "unknown";
+  console.warn(
+    `[Timezone] User ${userId} has no tz set in Slack profile — falling back to ${fallback}. ` +
+    "Set DEFAULT_TIMEZONE env var to change the fallback."
+  );
+  return fallback;
 }
 
 /**
