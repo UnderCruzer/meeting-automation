@@ -9,6 +9,8 @@ import json
 import logging
 from pathlib import Path
 
+import re
+
 import aiofiles
 
 from app.models.analysis import OrchestratorOutput
@@ -107,7 +109,6 @@ def _find_best_segment(query: str, segments):
 
 def _tokenize(text: str) -> list[str]:
     """Lowercase, split on whitespace and punctuation, drop short tokens."""
-    import re
     tokens = re.split(r"[\s\.,!?;:\"\'()\[\]]+", text.lower())
     return [t for t in tokens if len(t) >= 2]
 
