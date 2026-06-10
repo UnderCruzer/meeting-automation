@@ -42,10 +42,12 @@ class GuardResult:
 
 
 _PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("RRN", re.compile(r"\b\d{6}-[1-4]\d{6}\b")),
-    ("CARD", re.compile(r"\b(?:\d{4}[-\s]){3}\d{4}\b")),
-    ("PHONE_KR", re.compile(r"\b01[016789]-\d{3,4}-\d{4}\b")),
-    ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
+    # \b fails next to Korean chars (Python treats them as \w).
+    # Use digit/alpha-specific lookarounds instead.
+    ("RRN", re.compile(r"(?<!\d)\d{6}-[1-4]\d{6}(?!\d)")),
+    ("CARD", re.compile(r"(?<!\d)(?:\d{4}[-\s]){3}\d{4}(?!\d)")),
+    ("PHONE_KR", re.compile(r"(?<!\d)01[016789]-\d{3,4}-\d{4}(?!\d)")),
+    ("EMAIL", re.compile(r"(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(?![A-Za-z0-9])")),
     (
         "PASSWORD_HINT",
         re.compile(
