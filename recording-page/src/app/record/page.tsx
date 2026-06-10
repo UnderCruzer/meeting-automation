@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRecorder } from "@/hooks/useRecorder";
 import { useCountdown } from "@/hooks/useCountdown";
@@ -17,7 +17,16 @@ interface MeetingMeta {
   location: string;
 }
 
-export default function RecordPage() {
+// useSearchParams() must be inside a Suspense boundary (Next.js 14 requirement)
+export default function RecordPageWrapper() {
+  return (
+    <Suspense fallback={<main style={{ maxWidth: 480, margin: "48px auto", padding: "0 24px", fontFamily: "system-ui, sans-serif" }}><p>로딩 중...</p></main>}>
+      <RecordPage />
+    </Suspense>
+  );
+}
+
+function RecordPage() {
   const params = useSearchParams();
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadDone, setUploadDone] = useState(false);
