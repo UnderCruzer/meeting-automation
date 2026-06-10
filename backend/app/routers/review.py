@@ -82,7 +82,6 @@ async def approve(req: ApproveRequest, request: Request):
         job = get_job(req.job_id)
 
         for artifact_approval in approved_artifacts(req.job_id):
-            draft_path = base_dir / (job.meeting_id + f"/{req.job_id}.{artifact_approval.artifact}_draft.json")
             # Try to load draft payload from disk
             payload = _load_draft(base_dir, job, artifact_approval.artifact)
             if payload:
@@ -179,14 +178,20 @@ async def _update_slack_review(slack_ts: str, job_id: str) -> None:
         logger.warning("[Review] Failed to update Slack review message: %s", exc)
 
 
+def _safe_name(name: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
+
+
 def _load_draft(base_dir: Path, job, artifact: str) -> dict | None:
-    """Find the draft JSON file for a given artifact."""
-    # File naming pattern: <meeting_id_prefix>/<job_id>.<artifact>_draft(s).json
+    """Find the draft JSON file for a given artifact.
+
+    Storage uses _safe_name(meeting_id) as the directory — mirror that here.
+    """
+    safe_meeting_id = _safe_name(job.meeting_id)
     candidates = [
-        base_dir / f"{job.meeting_id}/{job.job_id}.{artifact}_drafts.json",
-        base_dir / f"{job.meeting_id}/{job.job_id}.{artifact}_draft.json",
+        base_dir / f"{safe_meeting_id}/{job.job_id}.{artifact}_drafts.json",
+        base_dir / f"{safe_meeting_id}/{job.job_id}.{artifact}_draft.json",
     ]
-    # Also search by glob in case directory structure varies
     for path in candidates:
         if path.exists():
             try:
