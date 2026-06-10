@@ -9,6 +9,9 @@ from app.services.guard import mask_transcript_segments, save_guard_report
 from app.services.orchestrator import analyse, save_analysis
 from app.services.retrieval import retrieve_context
 from app.services.stt import save_transcript, transcribe
+from app.services.draft_confluence import generate_confluence_draft, save_confluence_draft
+from app.services.draft_jira import generate_jira_drafts, save_jira_drafts
+from app.services.draft_slack import generate_slack_draft, save_slack_draft
 from app.services.summarizer import build_summary, save_summary
 
 logger = logging.getLogger(__name__)
@@ -80,6 +83,22 @@ async def _run_stt_and_guard(
 
         # Bounded retrieval — fetch related Jira/Confluence/Slack context
         context = await retrieve_context(analysis)
+
+        # Generate drafts — only for routing targets, skip if quality_ok is False
+        if summary.quality_ok:
+            if "jira" in analysis.routing:
+                jira_result = await generate_jira_drafts(summary, analysis, context)
+                await save_jira_drafts(jira_result, file_key, base_dir)
+
+            if "confluence" in analysis.routing:
+                conf_draft = generate_confluence_draft(summary)
+                await save_confluence_draft(conf_draft, file_key, base_dir)
+
+            if "slack" in analysis.routing:
+                slack_draft = generate_slack_draft(summary)
+                await save_slack_draft(slack_draft, file_key, base_dir)
+        else:
+            logger.warning("[Pipeline] %s — quality_ok=False, skipping draft generation", meeting_id)
 
         logger.info(
             "[Pipeline] %s — %d segments, %d PII masked, routing=%s, confidence=%.2f, "
