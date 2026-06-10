@@ -13,6 +13,7 @@ from app.services.draft_confluence import generate_confluence_draft, save_conflu
 from app.services.draft_jira import generate_jira_drafts, save_jira_drafts
 from app.services.draft_slack import generate_slack_draft, save_slack_draft
 from app.services.summarizer import build_summary, save_summary
+from app.services.review_sender import SendReviewRequest, send_review_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -99,6 +100,19 @@ async def _run_stt_and_guard(
                 await save_slack_draft(slack_draft, file_key, base_dir)
         else:
             logger.warning("[Pipeline] %s — quality_ok=False, skipping draft generation", meeting_id)
+
+        # Send Slack review message (fire-and-forget, non-blocking)
+        job_id = file_key.split("/")[-1].replace(".wav", "")
+        review_req = SendReviewRequest(
+            job_id=job_id,
+            meeting_id=meeting_id,
+            file_key=file_key,
+            routing=analysis.routing if summary.quality_ok else [],
+            has_pii=len(all_matches) > 0,
+            summary_ko=summary.summary_ko,
+            quality_ok=summary.quality_ok,
+        )
+        await send_review_message(review_req)
 
         logger.info(
             "[Pipeline] %s — %d segments, %d PII masked, routing=%s, confidence=%.2f, "
