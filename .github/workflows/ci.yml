@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend — type check & tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-asyncio
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+  recording-page:
+    name: Recording Page — type check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: recording-page
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: recording-page/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+  slack-bot:
+    name: Slack Bot — lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: slack-bot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: slack-bot/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check syntax
+        run: node --check src/app.js src/handlers/actions.js src/services/scheduler.js src/services/alertStore.js src/services/timezone.js
