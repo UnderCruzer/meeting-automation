@@ -1,0 +1,37 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  recording-page:
+    build: ./recording-page
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./recording-page/.env.local
+    environment:
+      - UPLOAD_API_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  slack-bot:
+    build: ./slack-bot
+    env_file:
+      - ./slack-bot/.env
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

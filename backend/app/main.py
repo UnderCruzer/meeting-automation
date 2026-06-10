@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import validate_env
 from app.middleware.auth import ApiKeyMiddleware
 from app.routers.digest import router as digest_router
 from app.routers.followup import router as followup_router
@@ -20,6 +21,7 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_env()
     storage_dir = os.getenv("STORAGE_DIR", "./data/recordings")
     app.state.storage = LocalStorage(storage_dir)
     # Start write queue worker as background task
