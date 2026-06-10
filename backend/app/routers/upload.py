@@ -52,7 +52,7 @@ async def upload_audio(
     audio_path = storage.base_dir / file_key
     background_tasks.add_task(_run_stt_and_guard, audio_path, file_key, meta.meetingId, storage.base_dir)
 
-    job_id = file_key.split("/")[-1].replace(".wav", "")
+    job_id = file_key.split("/")[-1][:-4]  # safe suffix strip
     return UploadResponse(jobId=job_id, fileKey=file_key, meetingId=meta.meetingId)
 
 
@@ -102,7 +102,7 @@ async def _run_stt_and_guard(
             logger.warning("[Pipeline] %s — quality_ok=False, skipping draft generation", meeting_id)
 
         # Send Slack review message (fire-and-forget, non-blocking)
-        job_id = file_key.split("/")[-1].replace(".wav", "")
+        job_id = file_key.split("/")[-1][:-4]  # fix: safe suffix strip, was .replace(".wav","")
         review_req = SendReviewRequest(
             job_id=job_id,
             meeting_id=meeting_id,
