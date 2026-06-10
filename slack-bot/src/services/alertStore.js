@@ -46,15 +46,12 @@ function hasSent(meetingId) {
   const store = _load();
   const now = Date.now();
 
-  // Purge expired entries while we have the store loaded
-  let dirty = false;
+  // Purge expired entries. Judgment is against the in-memory store, so a _save
+  // failure doesn't affect correctness — entries will be purged again next call.
   for (const [id, expiresAt] of Object.entries(store)) {
-    if (expiresAt < now) {
-      delete store[id];
-      dirty = true;
-    }
+    if (expiresAt < now) delete store[id];
   }
-  if (dirty) _save(store);
+  _save(store); // best-effort; errors are logged inside _save
 
   return Object.prototype.hasOwnProperty.call(store, meetingId) && store[meetingId] > now;
 }

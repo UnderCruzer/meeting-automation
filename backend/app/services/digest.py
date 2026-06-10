@@ -65,14 +65,18 @@ async def _generate_digest_text(
     if not analyses:
         return "📭 기간 내 회의 기록이 없습니다." if lang == "ko" else "📭 No meetings found in this period."
 
-    client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
+    def _safe_join(val: object) -> str:
+        """join list[str]; stringify if scalar (Claude occasionally returns str instead of list)."""
+        if isinstance(val, list):
+            return ", ".join(str(v) for v in val[:3])
+        return str(val)[:120] if val else ""
 
     summary_blocks = []
     for i, a in enumerate(analyses[:20], 1):   # cap at 20 meetings
         summary_blocks.append(
             f"[{i}] summary: {a.get('summary_ko' if lang == 'ko' else 'summary_en', '')}\n"
-            f"    decisions: {', '.join(a.get('decisions', [])[:3])}\n"
-            f"    action_items: {', '.join(a.get('action_items', [])[:3])}"
+            f"    decisions: {_safe_join(a.get('decisions', []))}\n"
+            f"    action_items: {_safe_join(a.get('action_items', []))}"
         )
     meetings_text = "\n".join(summary_blocks)
 
@@ -111,8 +115,7 @@ async def _generate_digest_text(
     )
 
     try:
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
+        response = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", "")).messages.create(
                 model=_MODEL,

@@ -107,6 +107,9 @@ async def handle_jira_webhook(payload: dict) -> dict:
     issue = payload.get("issue", {})
     changelog = payload.get("changelog", {})
     issue_key = issue.get("key", "")
+    if not issue_key:
+        logger.warning("[Followup] Jira webhook missing issue.key — ignoring")
+        return {"notified": 0}
     issue_summary = issue.get("fields", {}).get("summary", "")
 
     # 상태 변경 항목 찾기
