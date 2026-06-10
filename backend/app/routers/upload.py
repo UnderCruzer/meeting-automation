@@ -9,6 +9,7 @@ from app.services.guard import mask_transcript_segments, save_guard_report
 from app.services.orchestrator import analyse, save_analysis
 from app.services.retrieval import retrieve_context
 from app.services.stt import save_transcript, transcribe
+from app.services.summarizer import build_summary, save_summary
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -73,14 +74,19 @@ async def _run_stt_and_guard(
         analysis = await analyse(transcript, masked_text=masked_full_text)
         await save_analysis(analysis, file_key, base_dir)
 
+        # Enrich with citations + quality validation
+        summary = build_summary(analysis, transcript)
+        await save_summary(summary, file_key, base_dir)
+
         # Bounded retrieval — fetch related Jira/Confluence/Slack context
         context = await retrieve_context(analysis)
 
         logger.info(
-            "[Pipeline] %s — %d segments, %d PII masked, routing=%s, confidence=%.2f, retrieved=%d items from %s",
+            "[Pipeline] %s — %d segments, %d PII masked, routing=%s, confidence=%.2f, "
+            "quality_ok=%s, retrieved=%d items from %s",
             meeting_id, len(transcript.segments), len(all_matches),
             analysis.routing, analysis.confidence,
-            len(context.items), context.sources_searched,
+            summary.quality_ok, len(context.items), context.sources_searched,
         )
     except Exception:
         logger.exception("[STT+Guard] Failed for %s", meeting_id)
