@@ -1,6 +1,6 @@
 name: ✨ Feature Implementation
 description: New component or feature to implement
-title: "[FEAT] "
+title: "feat: "
 labels: ["feature"]
 body:
   - type: dropdown
