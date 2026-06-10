@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 In-memory approval store for human review/approval gate.
 
