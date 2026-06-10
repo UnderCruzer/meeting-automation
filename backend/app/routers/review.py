@@ -52,8 +52,12 @@ class ApproveRequest(BaseModel):
 
 @router.post("/send")
 async def send_review(req: SendReviewRequest, request: Request):
-    """Register job and send a Slack review message with approval buttons."""
-    job = register_job(req.job_id, req.meeting_id, req.routing)
+    """Register job (if not already registered) and send a Slack review message."""
+    # fix: avoid re-registering an existing job (pipeline already called register_job
+    # via send_review_message; calling it again would reset artifact statuses to pending)
+    job = get_job(req.job_id)
+    if job is None:
+        job = register_job(req.job_id, req.meeting_id, req.routing)
 
     ts = await _send_slack_review(req)
     if ts:
@@ -87,6 +91,7 @@ async def approve(req: ApproveRequest, request: Request):
             if payload:
                 await enqueue(WriteTask(
                     job_id=req.job_id,
+                    meeting_id=job.meeting_id,
                     artifact=artifact_approval.artifact,
                     payload=payload,
                     base_dir=base_dir,

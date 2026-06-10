@@ -73,14 +73,16 @@ def reject_artifact(job_id: str, artifact: str) -> bool:
 
 def all_resolved(job_id: str) -> bool:
     """True if every artifact is approved or rejected (no pending left)."""
-    job = _store.get(job_id)
-    if not job:
-        return False
-    return all(a.status != "pending" for a in job.artifacts.values())
+    with _lock:                                          # fix: was lock-free → race with approve/reject
+        job = _store.get(job_id)
+        if not job:
+            return False
+        return all(a.status != "pending" for a in job.artifacts.values())
 
 
 def approved_artifacts(job_id: str) -> list[ArtifactApproval]:
-    job = _store.get(job_id)
-    if not job:
-        return []
-    return [a for a in job.artifacts.values() if a.status == "approved"]
+    with _lock:
+        job = _store.get(job_id)
+        if not job:
+            return []
+        return [a for a in job.artifacts.values() if a.status == "approved"]
