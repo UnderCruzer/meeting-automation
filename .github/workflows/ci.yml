@@ -42,11 +42,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: recording-page/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Type check
         run: npx tsc --noEmit
@@ -64,11 +62,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: slack-bot/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Check syntax
         run: node --check src/app.js src/handlers/actions.js src/services/scheduler.js src/services/alertStore.js src/services/timezone.js
