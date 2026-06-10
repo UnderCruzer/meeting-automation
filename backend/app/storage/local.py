@@ -24,7 +24,7 @@ class LocalStorage:
 
     async def save_metadata(self, file_key: str, metadata: dict) -> None:
         """Write metadata JSON alongside the audio file."""
-        meta_path = self.base_dir / file_key.replace(".wav", ".json")
+        meta_path = self.base_dir / (file_key[:-4] + ".json")
         async with aiofiles.open(meta_path, "w", encoding="utf-8") as f:
             await f.write(json.dumps(metadata, ensure_ascii=False, indent=2))
 

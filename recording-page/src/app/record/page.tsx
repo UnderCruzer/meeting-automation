@@ -150,7 +150,6 @@ function RecordPage() {
 }
 
 async function uploadAudio(blob: Blob, meta: MeetingMeta): Promise<void> {
-  const apiUrl = process.env.NEXT_PUBLIC_UPLOAD_API_URL ?? "http://localhost:8000";
   const form = new FormData();
   form.append("audio", blob, "recording.wav");
   form.append("metadata", JSON.stringify({
@@ -161,12 +160,12 @@ async function uploadAudio(blob: Blob, meta: MeetingMeta): Promise<void> {
     location: meta.location,
   }));
 
-  // Retry up to 3 times with exponential backoff for network errors and 5xx only
+  // Proxy via /api/upload so BACKEND_API_KEY never leaks to the browser bundle
   const MAX_RETRIES = 3;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     let res: Response;
     try {
-      res = await fetch(`${apiUrl}/upload`, { method: "POST", body: form });
+      res = await fetch("/api/upload", { method: "POST", body: form });
     } catch (networkErr) {
       // Network failure (offline, DNS, timeout) — always retry
       if (attempt === MAX_RETRIES) throw networkErr;

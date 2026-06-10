@@ -129,7 +129,6 @@ data/recordings/
 ## 로드맵
 
 - [x] Phase 1: Local MVP — 22-component 파이프라인 구현 완료
-- [ ] Phase 2: KRAFTON Slack 승인 및 파일럿
-- [ ] Phase 3: Redis Write Queue, 프로덕션 스토리지(S3/Azure Blob) 전환
-- [ ] Phase 4: 다중 인스턴스 지원, 승인 store → Redis
-- [ ] Phase 5: 모델/프롬프트 A/B 테스트, 피드백 루프 자동화
+- [ ] Phase 2: Redis Write Queue, 프로덕션 스토리지(S3/Azure Blob) 전환
+- [ ] Phase 3: 다중 인스턴스 지원, 승인 store → Redis
+- [ ] Phase 4: 모델/프롬프트 A/B 테스트, 피드백 루프 자동화

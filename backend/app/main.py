@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.middleware.auth import ApiKeyMiddleware
 from app.routers.digest import router as digest_router
 from app.routers.followup import router as followup_router
 from app.routers.monitor import router as monitor_router
@@ -29,12 +30,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Meeting Automation Backend", lifespan=lifespan)
 
+app.add_middleware(ApiKeyMiddleware)
+
 origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3001").split(",")]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_methods=["POST", "GET"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
 
 app.include_router(upload_router)
