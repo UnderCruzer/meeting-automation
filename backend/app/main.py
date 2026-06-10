@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import validate_env
 from app.middleware.auth import ApiKeyMiddleware
+from app.middleware.rate_limit import UploadRateLimitMiddleware
 from app.routers.digest import router as digest_router
 from app.routers.followup import router as followup_router
 from app.routers.monitor import router as monitor_router
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Meeting Automation Backend", lifespan=lifespan)
 
 app.add_middleware(ApiKeyMiddleware)
+app.add_middleware(UploadRateLimitMiddleware)
 
 origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3001").split(",")]
 app.add_middleware(
