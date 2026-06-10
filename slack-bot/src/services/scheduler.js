@@ -2,6 +2,7 @@ const cron = require("node-cron");
 const { minutesUntilMeetingSec, toLocalTime, getUserTimezone } = require("./timezone");
 const { buildDmAlertMessage } = require("../messages/dmAlert");
 const { isSkipped } = require("./sessionStore");
+const { hasSent, markSent } = require("./alertStore"); // fix #23: persistent across restarts
 
 const ALERT_BEFORE_MINUTES = 5; // 회의 시작 N분 전에 DM 발송
 const CHECK_INTERVAL_MINUTES = 1; // 매 N분마다 회의 체크
@@ -13,9 +14,6 @@ const CHECK_INTERVAL_MINUTES = 1; // 매 N분마다 회의 체크
  * @param {Function} getMeetings - async fn returning upcoming meeting list
  */
 function startScheduler(app, getMeetings) {
-  // Track sent alerts to prevent duplicates
-  const sentAlerts = new Set();
-
   cron.schedule(`*/${CHECK_INTERVAL_MINUTES} * * * *`, async () => {
     try {
       const meetings = await getMeetings();
@@ -31,7 +29,8 @@ function startScheduler(app, getMeetings) {
           minutesLeftSec <= windowUpperSec &&
           minutesLeftSec > windowLowerSec;
 
-        if (!inAlertWindow || sentAlerts.has(meeting.id) || isSkipped(meeting.id)) continue;
+        // fix #23: hasSent() reads from persistent JSON file (survives restarts)
+        if (!inAlertWindow || hasSent(meeting.id) || isSkipped(meeting.id)) continue;
 
         const results = await Promise.allSettled(
           meeting.attendeeSlackIds.map((id) => sendDmAlert(app, id, meeting))
@@ -40,7 +39,7 @@ function startScheduler(app, getMeetings) {
         const allFailed = results.every((r) => r.status === "rejected");
         if (!allFailed) {
           // Only mark as sent when at least one DM succeeded, allowing retry for full failures
-          sentAlerts.add(meeting.id);
+          markSent(meeting.id);
         }
       }
     } catch (err) {
