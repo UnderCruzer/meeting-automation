@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 AI Orchestrator — analyse meeting transcript with Claude API.
 
