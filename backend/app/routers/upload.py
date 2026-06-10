@@ -84,19 +84,10 @@ async def _run_stt_and_guard(
         # Bounded retrieval — fetch related Jira/Confluence/Slack context
         context = await retrieve_context(analysis)
 
-        # Generate drafts in parallel — only for routing targets, skip if quality_ok is False
+        # Generate drafts — only for routing targets, skip if quality_ok is False
         if summary.quality_ok:
-            draft_tasks = {}
             if "jira" in analysis.routing:
-                draft_tasks["jira"] = generate_jira_drafts(summary, analysis, context)
-            if "confluence" in analysis.routing:
-                draft_tasks["confluence"] = None  # sync, run directly
-            if "slack" in analysis.routing:
-                draft_tasks["slack"] = None
-
-            if "jira" in draft_tasks and draft_tasks["jira"] is not None:
-                import asyncio
-                jira_result = await draft_tasks["jira"]
+                jira_result = await generate_jira_drafts(summary, analysis, context)
                 await save_jira_drafts(jira_result, file_key, base_dir)
 
             if "confluence" in analysis.routing:
