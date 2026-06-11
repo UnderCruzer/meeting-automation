@@ -1,0 +1,22 @@
+# 로컬 개발용 오버라이드 — docker-compose up 시 자동 적용
+# 프로덕션에서는 이 파일을 사용하지 마세요.
+services:
+  backend:
+    volumes:
+      - ./backend/app:/app/app   # 코드 변경 시 핫리로드
+      - ./data:/app/data
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  recording-page:
+    volumes:
+      - ./recording-page/src:/app/src   # Next.js Fast Refresh
+      - ./recording-page/public:/app/public
+    environment:
+      - NEXT_TELEMETRY_DISABLED=1
+
+  slack-bot:
+    volumes:
+      - ./slack-bot/src:/app/src   # nodemon 핫리로드
+    command: npx nodemon --watch src src/app.js
