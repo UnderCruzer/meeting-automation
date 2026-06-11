@@ -20,6 +20,10 @@ node_modules/
 .next/
 dist/
 
+# Next.js 자동생성
+recording-page/next-env.d.ts
+recording-page/tsconfig.tsbuildinfo
+
 # 기타
 *.log
 .DS_Store
