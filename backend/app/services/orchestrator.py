@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 _MODEL = "claude-sonnet-4-6"
 _MAX_TOKENS = 4096
+# claude-sonnet-4-6 context window is 200k tokens (~800k chars).
+# Reserve headroom for system prompt, tool schema, and response.
+_TRANSCRIPT_CHAR_LIMIT = 600_000
 
 _ANALYSIS_TOOL = {
     "name": "analyse_meeting",
@@ -103,6 +106,13 @@ async def analyse(
     text = masked_text if masked_text is not None else transcript.full_text
     if not text.strip():
         raise ValueError("Transcript is empty — cannot analyse")
+
+    if len(text) > _TRANSCRIPT_CHAR_LIMIT:
+        logger.warning(
+            "[Orchestrator] Transcript too long (%d chars) — truncating to %d",
+            len(text), _TRANSCRIPT_CHAR_LIMIT,
+        )
+        text = text[:_TRANSCRIPT_CHAR_LIMIT] + "\n\n[TRANSCRIPT TRUNCATED]"
 
     user_content = (
         f"Meeting transcript ({transcript.language}, {transcript.duration:.0f}s):\n\n{text}"
