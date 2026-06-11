@@ -19,6 +19,8 @@ export function useCountdown(targetIso: string | null, onZero?: () => void) {
   useEffect(() => {
     if (!targetIso) return;
 
+    let id: ReturnType<typeof setInterval>;
+
     const tick = () => {
       const s = secondsUntil(targetIso);
       if (!Number.isFinite(s)) return; // guard against NaN on bad ISO
@@ -30,7 +32,7 @@ export function useCountdown(targetIso: string | null, onZero?: () => void) {
     };
 
     tick();
-    const id = setInterval(tick, 1000);
+    id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [targetIso]); // onZero intentionally excluded — accessed via ref
 
