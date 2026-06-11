@@ -15,8 +15,16 @@
 
 closes #
 
+## 테스트 방법
+
+<!-- 변경 사항을 어떻게 확인했는지 적어주세요 -->
+
+- [ ] `cd backend && python3 -m pytest tests/ -v`
+- [ ] `cd recording-page && npx tsc --noEmit`
+- [ ] 로컬에서 직접 동작 확인
+
 ## 체크리스트
 
-- [ ] 테스트를 추가하거나 기존 테스트가 통과한다 (`pytest` / `npm test`)
+- [ ] 테스트를 추가하거나 기존 테스트가 통과한다
 - [ ] 새로운 환경변수가 있다면 `.env.example`에 추가했다
 - [ ] 외부 API 호출이 있다면 자격증명이 코드에 하드코딩되지 않았다

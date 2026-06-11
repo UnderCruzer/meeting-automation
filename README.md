@@ -29,9 +29,9 @@
 ### 1. 환경변수 설정
 
 ```bash
-cp backend/.env.example backend/.env
-cp slack-bot/.env.example slack-bot/.env
-cp recording-page/.env.example recording-page/.env.local
+cp .env.example backend/.env
+cp .env.example slack-bot/.env
+cp .env.example recording-page/.env.local
 ```
 
 필수 항목:
@@ -40,7 +40,18 @@ cp recording-page/.env.example recording-page/.env.local
 - `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` — Slack Bot Socket Mode
 - `JIRA_*` / `CONFLUENCE_*` — Atlassian API 키 (초안 배포 필요 시)
 
-### 2. 서비스 기동
+> 전체 환경변수 목록 및 설명은 [`.env.example`](.env.example) 참고
+
+### 2a. Docker로 실행 (권장)
+
+```bash
+docker-compose up --build
+```
+
+- Backend: http://localhost:8000
+- Recording Page: http://localhost:3001
+
+### 2b. 로컬 직접 실행
 
 ```bash
 # Backend
