@@ -53,4 +53,20 @@ app.include_router(monitor_router)
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    storage_dir = os.getenv("STORAGE_DIR", "./data/recordings")
+    storage_ok = os.path.isdir(storage_dir)
+
+    env_status = {
+        "ANTHROPIC_API_KEY": bool(os.getenv("ANTHROPIC_API_KEY")),
+        "SLACK_BOT_TOKEN": bool(os.getenv("SLACK_BOT_TOKEN")),
+        "OPENAI_API_KEY": bool(os.getenv("OPENAI_API_KEY")),
+    }
+
+    healthy = storage_ok and env_status["ANTHROPIC_API_KEY"] and env_status["SLACK_BOT_TOKEN"]
+
+    return {
+        "status": "ok" if healthy else "degraded",
+        "storage": {"path": storage_dir, "accessible": storage_ok},
+        "env": env_status,
+        "stt_backend": os.getenv("STT_BACKEND", "whisper-api"),
+    }
