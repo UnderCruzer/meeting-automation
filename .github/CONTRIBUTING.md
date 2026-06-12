@@ -66,7 +66,7 @@ docs: update README with architecture diagram
 ## PR Convention
 
 - 제목: `feat(scope): 간단한 설명 (#이슈번호)` — 커밋 컨벤션과 동일한 형식 사용
-- 본문: PR 템플릿([`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md)) 자동 적용
+- 본문: PR 템플릿([`PULL_REQUEST_TEMPLATE.md`](PULL_REQUEST_TEMPLATE.md)) 자동 적용
 - 관련 이슈는 본문에 `closes #번호` 로 연결
 - 리뷰어 지정 후 머지 (Merge commit 사용, 원자 커밋 유지)
 
