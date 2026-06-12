@@ -1,7 +1,7 @@
 """
 Write Queue — asyncio.Queue workers that publish approved drafts.
 
-Workers: jira_worker, confluence_worker, slack_worker
+Workers: jira_worker, confluence_worker, slack_worker, pdf_worker
 Each retries up to 3 times with exponential backoff on failure.
 Audit log written to data/recordings/<job_id>/audit.log.
 """
@@ -66,6 +66,8 @@ async def _dispatch(task: WriteTask) -> None:
                 result = await _publish_confluence(task.payload)
             elif task.artifact == "slack":
                 result = await _publish_slack(task.payload)
+            elif task.artifact == "pdf":
+                result = await _publish_pdf_slack(task.payload, task.base_dir)
             else:
                 logger.warning("[WriteQueue] Unknown artifact type: %s", task.artifact)
                 return
@@ -170,6 +172,53 @@ async def _publish_slack(payload: dict) -> dict:
             raise RuntimeError(data.get("error", "Slack API error"))
 
     return {"ts": data.get("ts"), "channel": data.get("channel")}
+
+
+async def _publish_pdf_slack(payload: dict, base_dir: Path) -> dict:
+    """Generate a PDF from OrchestratorOutput and upload it to Slack as a file.
+
+    If SLACK_BOT_TOKEN is absent, skips upload and returns the local path only.
+    """
+    from app.models.analysis import OrchestratorOutput
+    from app.services.pdf_report import save_pdf
+
+    output = OrchestratorOutput(**payload["output"])
+    lang = payload.get("lang", "en")
+    channel = payload.get("channel", os.getenv("SLACK_BRIEF_CHANNEL", "general"))
+
+    pdf_path = save_pdf(output, base_dir=base_dir, lang=lang)
+    result: dict = {"local_path": str(pdf_path)}
+
+    token = os.getenv("SLACK_BOT_TOKEN", "")
+    if not token:
+        logger.warning("[WriteQueue] SLACK_BOT_TOKEN not set — PDF saved locally only: %s", pdf_path)
+        return result
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        with open(pdf_path, "rb") as f:
+            resp = await client.post(
+                "https://slack.com/api/files.uploadV2",
+                headers={"Authorization": f"Bearer {token}"},
+                data={
+                    "channels": f"#{channel}",
+                    "filename": pdf_path.name,
+                    "title": f"Meeting Report — {output.meeting_id}",
+                    "initial_comment": payload.get(
+                        "initial_comment",
+                        f":page_facing_up: Meeting minutes attached for `{output.meeting_id}`",
+                    ),
+                },
+                files={"file": (pdf_path.name, f, "application/pdf")},
+            )
+        resp.raise_for_status()
+        data = resp.json()
+        if not data.get("ok"):
+            raise RuntimeError(data.get("error", "Slack files.uploadV2 error"))
+
+    result["slack_file_id"] = data.get("file", {}).get("id")
+    result["channel"] = channel
+    logger.info("[WriteQueue] PDF uploaded to Slack #%s — file_id=%s", channel, result["slack_file_id"])
+    return result
 
 
 async def _write_audit(task: WriteTask, success: bool, detail: Any) -> None:
