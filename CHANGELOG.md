@@ -5,6 +5,9 @@
 ### Added
 - `CHANGELOG.md` 추가
 - `docker-compose.override.yml` 로컬 개발용 핫리로드 설정
+- **#23 PDF Report** — `pdf_report.py`: fpdf2 기반 회의록 PDF 자동 생성 (회의 ID·참석자·요약·결정사항·액션 아이템, KR/EN 분기)
+- `write_queue.py`: `pdf` artifact 타입 추가, Slack `files.uploadV2`로 PDF 파일 첨부 발송 (토큰 없을 시 로컬 저장 fallback)
+- `test_pdf_report.py`: 25개 유닛 테스트 추가 (총 131개)
 
 ---
 
