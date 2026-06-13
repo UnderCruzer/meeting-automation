@@ -15,6 +15,7 @@ import anthropic
 
 from app.models.analysis import OrchestratorOutput
 from app.models.transcript import TranscriptResult
+from app.services.diarization import format_diarized_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +115,18 @@ async def analyse(
         )
         text = text[:_TRANSCRIPT_CHAR_LIMIT] + "\n\n[TRANSCRIPT TRUNCATED]"
 
-    user_content = (
-        f"Meeting transcript ({transcript.language}, {transcript.duration:.0f}s):\n\n{text}"
-    )
+    # Include speaker-labelled transcript when diarization has been applied
+    has_diarization = len({s.speaker for s in transcript.segments}) > 1
+    if has_diarization:
+        diarized_text = format_diarized_transcript(transcript)
+        user_content = (
+            f"Meeting transcript ({transcript.language}, {transcript.duration:.0f}s)"
+            f" — speaker-labelled:\n\n{diarized_text}"
+        )
+    else:
+        user_content = (
+            f"Meeting transcript ({transcript.language}, {transcript.duration:.0f}s):\n\n{text}"
+        )
 
     client = anthropic.AsyncAnthropic(api_key=api_key)
     response = await client.messages.create(
