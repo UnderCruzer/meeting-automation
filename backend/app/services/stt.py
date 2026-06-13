@@ -21,16 +21,20 @@ logger = logging.getLogger(__name__)
 
 
 async def transcribe(audio_path: Path, meeting_id: str) -> TranscriptResult:
-    """Transcribe a WAV file and return a structured TranscriptResult."""
-    # Read env at call time so .env loaded via lifespan is visible
+    """Transcribe a WAV file, apply speaker diarization, and return TranscriptResult."""
+    from app.services.diarization import diarize
+
     backend = os.getenv("STT_BACKEND", "whisper-api")
     if backend == "local":
-        return await _transcribe_local(audio_path, meeting_id)
-    try:
-        return await _transcribe_api(audio_path, meeting_id)
-    except Exception as exc:
-        logger.warning("Whisper API failed (%s), falling back to local model", exc)
-        return await _transcribe_local(audio_path, meeting_id)
+        result = await _transcribe_local(audio_path, meeting_id)
+    else:
+        try:
+            result = await _transcribe_api(audio_path, meeting_id)
+        except Exception as exc:
+            logger.warning("Whisper API failed (%s), falling back to local model", exc)
+            result = await _transcribe_local(audio_path, meeting_id)
+
+    return await diarize(audio_path, result)
 
 
 async def _transcribe_api(audio_path: Path, meeting_id: str) -> TranscriptResult:
