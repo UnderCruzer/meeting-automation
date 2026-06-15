@@ -84,6 +84,14 @@ async def _dispatch(task: WriteTask) -> None:
     await _write_audit(task, success=False, detail={"error": "max retries exceeded"})
     logger.error("[WriteQueue] ✗ %s:%s failed after %d attempts", task.job_id, task.artifact, _MAX_RETRIES)
 
+    from app.services.alert import send_failure_alert
+    await send_failure_alert(
+        job_id=task.job_id,
+        artifact=task.artifact,
+        meeting_id=task.meeting_id,
+        error="max retries exceeded",
+    )
+
 
 async def _publish_jira(payload: dict) -> dict:
     base_url = os.getenv("JIRA_BASE_URL", "").rstrip("/")
