@@ -71,7 +71,7 @@ async def _post_slack_review(req) -> str:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
                 "https://slack.com/api/chat.postMessage",
-                json={"channel": f"#{channel}", "blocks": blocks, "text": "회의 초안 검토 요청"},
+                json={"channel": channel, "blocks": blocks, "text": "회의 초안 검토 요청"},
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             )
             data = resp.json()
