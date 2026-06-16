@@ -33,14 +33,9 @@ async def upload_audio(
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in audio:
-        total += len(chunk)
-        if total > MAX_FILE_BYTES:
-            raise HTTPException(status_code=413, detail="Audio file exceeds 500 MB limit")
-        chunks.append(chunk)
-    audio_bytes = b"".join(chunks)
+    audio_bytes = await audio.read()
+    if len(audio_bytes) > MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="Audio file exceeds 500 MB limit")
 
     if len(audio_bytes) < 44:
         raise HTTPException(status_code=422, detail="Audio file too small to be valid WAV")

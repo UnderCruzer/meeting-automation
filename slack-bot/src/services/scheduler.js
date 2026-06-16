@@ -1,7 +1,7 @@
 const cron = require("node-cron");
 const { minutesUntilMeetingSec, toLocalTime, getUserTimezone } = require("./timezone");
 const { buildDmAlertMessage } = require("../messages/dmAlert");
-const { isSkipped } = require("./sessionStore");
+const { isSkipped, storeMeeting } = require("./sessionStore");
 const { hasSent, markSent } = require("./alertStore"); // fix #23: persistent across restarts
 
 const ALERT_BEFORE_MINUTES = 5; // 회의 시작 N분 전에 DM 발송
@@ -32,6 +32,7 @@ function startScheduler(app, getMeetings) {
         // fix #23: hasSent() reads from persistent JSON file (survives restarts)
         if (!inAlertWindow || hasSent(meeting.id) || isSkipped(meeting.id)) continue;
 
+        storeMeeting(meeting);
         const results = await Promise.allSettled(
           meeting.attendeeSlackIds.map((id) => sendDmAlert(app, id, meeting))
         );

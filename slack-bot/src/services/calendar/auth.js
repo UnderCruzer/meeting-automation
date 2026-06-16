@@ -1,19 +1,39 @@
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 
 const CLIENT_ID = process.env.AZURE_CLIENT_ID;
 const REDIRECT_URI = process.env.AZURE_REDIRECT_URI || "http://localhost:3000/auth/callback";
 const SCOPES = ["Calendars.Read", "User.Read", "offline_access"].join(" ");
 
-// Personal account endpoint
 const AUTHORITY = "https://login.microsoftonline.com/consumers";
 
-// In-memory token store — replace with persistent store in production
+const TOKEN_PATH = path.join(__dirname, "../../../../data/token.json");
+
 let tokenStore = null;
 
-/**
- * Build the OAuth2 authorization URL for user login
- * @returns {{ url: string, state: string }}
- */
+function _loadToken() {
+  try {
+    if (fs.existsSync(TOKEN_PATH)) {
+      tokenStore = JSON.parse(fs.readFileSync(TOKEN_PATH, "utf8"));
+      console.log("[Auth] Token loaded from disk");
+    }
+  } catch {
+    tokenStore = null;
+  }
+}
+
+function _saveToken() {
+  try {
+    fs.mkdirSync(path.dirname(TOKEN_PATH), { recursive: true });
+    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokenStore), "utf8");
+  } catch (e) {
+    console.error("[Auth] Failed to save token:", e.message);
+  }
+}
+
+_loadToken();
+
 function buildAuthUrl() {
   const state = crypto.randomBytes(16).toString("hex");
   const params = new URLSearchParams({
@@ -31,14 +51,10 @@ function buildAuthUrl() {
   };
 }
 
-/**
- * Exchange authorization code for access + refresh tokens
- * @param {string} code - auth code from redirect callback
- * @returns {Object} token response
- */
 async function exchangeCode(code) {
   const body = new URLSearchParams({
     client_id: CLIENT_ID,
+    client_secret: process.env.AZURE_CLIENT_SECRET || "",
     grant_type: "authorization_code",
     code,
     redirect_uri: REDIRECT_URI,
@@ -63,18 +79,13 @@ async function exchangeCode(code) {
     expiresAt: Date.now() + tokens.expires_in * 1000,
   };
 
+  _saveToken();
   console.log("[Auth] Tokens acquired and stored");
   return tokenStore;
 }
 
-// In-flight refresh promise — prevents concurrent refresh with stale refresh token
 let refreshInFlight = null;
 
-/**
- * Get a valid access token, refreshing if expired.
- * Concurrent callers share the same in-flight refresh promise.
- * @returns {string} access token
- */
 async function getAccessToken() {
   if (!tokenStore) throw new Error("Not authenticated. Visit /auth/login first.");
 
@@ -92,6 +103,7 @@ async function getAccessToken() {
 async function doRefresh() {
   const body = new URLSearchParams({
     client_id: process.env.AZURE_CLIENT_ID,
+    client_secret: process.env.AZURE_CLIENT_SECRET || "",
     grant_type: "refresh_token",
     refresh_token: tokenStore.refreshToken,
     scope: SCOPES,
@@ -115,6 +127,7 @@ async function doRefresh() {
     expiresAt: Date.now() + tokens.expires_in * 1000,
   };
 
+  _saveToken();
   console.log("[Auth] Token refreshed");
   return tokenStore.accessToken;
 }

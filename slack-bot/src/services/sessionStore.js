@@ -3,11 +3,22 @@
  * Tracks: pending | approved | skipped
  */
 
-// meetingId → { status, userId, approvedAt }
+// meetingId → { status, userId, approvedAt, meeting }
 const sessions = new Map();
+
+// meetingId → meeting metadata (set by scheduler before sending DM)
+const meetingMeta = new Map();
 
 // meetingIds skipped by user — scheduler checks before sending DM
 const skippedMeetings = new Set();
+
+function storeMeeting(meeting) {
+  meetingMeta.set(meeting.id, meeting);
+}
+
+function getMeeting(meetingId) {
+  return meetingMeta.get(meetingId) ?? null;
+}
 
 function approve(meetingId, userId) {
   sessions.set(meetingId, { status: "approved", userId, approvedAt: Date.now() });
@@ -32,4 +43,4 @@ function isApproved(meetingId) {
   return sessions.get(meetingId)?.status === "approved";
 }
 
-module.exports = { approve, skip, isSkipped, isApproved };
+module.exports = { approve, skip, isSkipped, isApproved, storeMeeting, getMeeting };

@@ -12,8 +12,7 @@ function parseOfflineMeetings(events) {
 
 function isOfflineMeeting(event) {
   const hasLocation = !!event.location?.displayName?.trim();
-  const isOnline = event.isOnlineMeeting === true;
-  return hasLocation && !isOnline;
+  return hasLocation;
 }
 
 function normalize(event) {

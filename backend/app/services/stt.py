@@ -38,39 +38,65 @@ async def transcribe(audio_path: Path, meeting_id: str) -> TranscriptResult:
 
 
 async def _transcribe_api(audio_path: Path, meeting_id: str) -> TranscriptResult:
+    import io
+
+    groq_key = os.getenv("GROQ_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+
+    audio_bytes = await asyncio.get_event_loop().run_in_executor(
+        None, audio_path.read_bytes
+    )
+
+    if groq_key:
+        from groq import AsyncGroq
+        client = AsyncGroq(api_key=groq_key)
+        response = await client.audio.transcriptions.create(
+            model="whisper-large-v3",
+            file=("recording.wav", io.BytesIO(audio_bytes), "audio/wav"),
+            response_format="verbose_json",
+            timestamp_granularities=["segment"],
+        )
+        raw_segs = response.segments or []
+        segments = [
+            TranscriptSegment(
+                start=seg["start"] if isinstance(seg, dict) else seg.start,
+                end=seg["end"] if isinstance(seg, dict) else seg.end,
+                text=(seg["text"] if isinstance(seg, dict) else seg.text).strip(),
+            )
+            for seg in raw_segs
+        ]
+        full_text = " ".join(s.text for s in segments)
+        lang = response.language if isinstance(response.language, str) else "unknown"
+        dur = response.duration if isinstance(response.duration, (int, float)) else 0.0
+        return TranscriptResult(
+            meetingId=meeting_id,
+            language=lang or "unknown",
+            duration=dur,
+            segments=segments,
+            full_text=full_text,
+            backend="groq-whisper",
+        )
+
+    if not openai_key:
+        raise RuntimeError("OPENAI_API_KEY or GROQ_API_KEY not set")
+
     try:
         from openai import AsyncOpenAI
     except ImportError:
         raise RuntimeError("openai package not installed. Run: pip install openai")
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not set")
-
-    # Read file in executor to avoid blocking the event loop on large WAV
-    audio_bytes = await asyncio.get_event_loop().run_in_executor(
-        None, audio_path.read_bytes
-    )
-
-    client = AsyncOpenAI(api_key=api_key)
-    import io
+    client = AsyncOpenAI(api_key=openai_key)
     response = await client.audio.transcriptions.create(
         model="whisper-1",
         file=("recording.wav", io.BytesIO(audio_bytes), "audio/wav"),
         response_format="verbose_json",
         timestamp_granularities=["segment"],
     )
-
     segments = [
-        TranscriptSegment(
-            start=seg.start,
-            end=seg.end,
-            text=seg.text.strip(),
-        )
+        TranscriptSegment(start=seg.start, end=seg.end, text=seg.text.strip())
         for seg in (response.segments or [])
     ]
     full_text = " ".join(s.text for s in segments)
-
     return TranscriptResult(
         meetingId=meeting_id,
         language=response.language or "unknown",

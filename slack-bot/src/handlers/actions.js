@@ -1,4 +1,4 @@
-const { approve, skip, isApproved } = require("../services/sessionStore");
+const { approve, skip, isApproved, getMeeting } = require("../services/sessionStore");
 
 /**
  * Register Slack action handlers for recording approval buttons
@@ -22,7 +22,12 @@ function registerActionHandlers(app) {
       blockText: `✅ *녹음 준비 완료*\n잠시 후 녹음 페이지 링크를 전송해드립니다.`,
     });
 
-    await sendRecordingLink(client, userId, meetingId);
+    try {
+      await sendRecordingLink(client, userId, meetingId);
+      console.log(`[Action] Recording link sent to ${userId} for meeting ${meetingId}`);
+    } catch (err) {
+      console.error(`[Action] Failed to send recording link:`, err.message);
+    }
     console.log(`[Action] User ${userId} approved recording for meeting ${meetingId}`);
   }));
 
@@ -43,7 +48,15 @@ function registerActionHandlers(app) {
  */
 async function sendRecordingLink(client, userId, meetingId) {
   const base = process.env.RECORDING_PAGE_URL || "http://localhost:3001";
-  const url = `${base}/record?meetingId=${encodeURIComponent(meetingId)}`;
+  const meeting = getMeeting(meetingId);
+  const params = new URLSearchParams({ meetingId });
+  if (meeting) {
+    params.set("title", meeting.title ?? "");
+    params.set("startTime", meeting.startTime ?? "");
+    params.set("endTime", meeting.endTime ?? "");
+    params.set("location", meeting.location ?? "");
+  }
+  const url = `${base}/record?${params}`;
 
   await client.chat.postMessage({
     channel: userId,
