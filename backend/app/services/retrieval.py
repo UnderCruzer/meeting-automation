@@ -84,10 +84,10 @@ async def _search_jira(
     auth = b64encode(f"{email}:{token}".encode()).decode()
     jql = f'project = "{project}" AND text ~ "{keywords}" ORDER BY updated DESC'
     try:
-        resp = await client.get(
+        resp = await client.post(
             f"{base_url}/rest/api/3/search",
-            params={"jql": jql, "maxResults": _JIRA_MAX, "fields": "summary,description,status"},
-            headers={"Authorization": f"Basic {auth}", "Accept": "application/json"},
+            json={"jql": jql, "maxResults": _JIRA_MAX, "fields": ["summary", "description", "status"]},
+            headers={"Authorization": f"Basic {auth}", "Accept": "application/json", "Content-Type": "application/json"},
         )
         resp.raise_for_status()
         data = resp.json()

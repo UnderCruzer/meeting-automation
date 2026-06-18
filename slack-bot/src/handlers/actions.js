@@ -1,4 +1,6 @@
 const { approve, skip, isApproved, getMeeting } = require("../services/sessionStore");
+const https = require("https");
+const http = require("http");
 
 /**
  * Register Slack action handlers for recording approval buttons
@@ -30,6 +32,47 @@ function registerActionHandlers(app) {
     }
     console.log(`[Action] User ${userId} approved recording for meeting ${meetingId}`);
   }));
+
+  // Review approval handlers (approve_jira, approve_confluence, approve_slack, reject_*)
+  const BACKEND_URL = process.env.BACKEND_URL || "http://backend:8000";
+  for (const artifact of ["jira", "confluence", "slack"]) {
+    for (const action of ["approve", "reject"]) {
+      const actionId = `${action}_${artifact}`;
+      app.action(actionId, async ({ ack, body, client }) => {
+        await ack();
+        try {
+          const value = body.actions?.[0]?.value || "";
+          const [act, jobId, art] = value.split("|");
+          const userId = body.user?.id || "";
+          console.log(`[Review] ${actionId} — job=${jobId} artifact=${art} user=${userId}`);
+
+          await postJSON(`${BACKEND_URL}/review/approve`, {
+            job_id: jobId,
+            artifact: art,
+            action: act,
+            approved_by: userId,
+          });
+
+          await client.chat.update({
+            channel: body.channel?.id,
+            ts: body.message?.ts,
+            text: body.message?.text,
+            blocks: body.message?.blocks?.map(b => {
+              if (b.block_id === `approval_${art}_${jobId}`) {
+                return {
+                  type: "section",
+                  text: { type: "mrkdwn", text: act === "approve" ? `✅ *${art.toUpperCase()} 승인 완료*` : `❌ *${art.toUpperCase()} 거절*` },
+                };
+              }
+              return b;
+            }),
+          }).catch(() => {});
+        } catch (err) {
+          console.error(`[Review] ${actionId} error:`, err.message);
+        }
+      });
+    }
+  }
 
   app.action("skip_recording", handleAction("skip_recording", async ({ meetingId, userId, body, client }) => {
     skip(meetingId, userId);
@@ -135,6 +178,25 @@ async function updateMessage(client, body, { text, blockText }) {
         text: { type: "mrkdwn", text: blockText },
       },
     ],
+  });
+}
+
+function postJSON(url, data) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(data);
+    const parsed = new URL(url);
+    const lib = parsed.protocol === "https:" ? https : http;
+    const req = lib.request(parsed, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+    }, res => {
+      let raw = "";
+      res.on("data", c => raw += c);
+      res.on("end", () => resolve(JSON.parse(raw || "{}")));
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
   });
 }
 
