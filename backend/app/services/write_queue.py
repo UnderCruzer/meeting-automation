@@ -143,19 +143,23 @@ async def _publish_confluence(payload: dict) -> dict:
     if not all([base_url, token, email]):
         raise RuntimeError("Confluence credentials not configured")
 
+    space_key = payload.get("space_key") or os.getenv("CONFLUENCE_SPACE_KEY", "")
+    if not space_key:
+        raise RuntimeError("Confluence space_key not configured")
+
     auth = b64encode(f"{email}:{token}".encode()).decode()
     headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
     body = {
         "type": "page",
         "title": payload["title"],
-        "space": {"key": payload["space_key"]},
+        "space": {"key": space_key},
         "body": {"storage": {"value": payload["body"], "representation": "storage"}},
     }
     if payload.get("parent_page_id"):
         body["ancestors"] = [{"id": payload["parent_page_id"]}]
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(f"{base_url}/rest/api/content", json=body, headers=headers)
+        resp = await client.post(f"{base_url}/wiki/rest/api/content", json=body, headers=headers)
         resp.raise_for_status()
         data = resp.json()
 
@@ -171,7 +175,7 @@ async def _publish_slack(payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
             "https://slack.com/api/chat.postMessage",
-            json={"channel": f"#{channel}", "text": payload["text"], "mrkdwn": True},
+            json={"channel": channel, "text": payload["text"], "mrkdwn": True},
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         )
         resp.raise_for_status()
@@ -208,7 +212,7 @@ async def _publish_pdf_slack(payload: dict, base_dir: Path) -> dict:
                 "https://slack.com/api/files.uploadV2",
                 headers={"Authorization": f"Bearer {token}"},
                 data={
-                    "channels": f"#{channel}",
+                    "channels": channel,
                     "filename": pdf_path.name,
                     "title": f"Meeting Report — {output.meeting_id}",
                     "initial_comment": payload.get(

@@ -126,7 +126,7 @@ async def _search_confluence(
     cql = f'type = "page" AND space = "{space}" AND text ~ "{keywords}" ORDER BY lastModified DESC'
     try:
         resp = await client.get(
-            f"{base_url}/rest/api/content/search",
+            f"{base_url}/wiki/rest/api/content/search",
             params={"cql": cql, "limit": _CONFLUENCE_MAX, "expand": "excerpt"},
             headers={"Authorization": f"Basic {auth}", "Accept": "application/json"},
         )
