@@ -23,7 +23,10 @@ _OPTIONAL_WARN = {
 
 
 def validate_env() -> None:
-    missing_required = [k for k in _REQUIRED if not os.getenv(k)]
+    required = dict(_REQUIRED)
+    if os.getenv("WORKSPACE_MODE") == "standalone":
+        required.pop("SLACK_BOT_TOKEN")
+    missing_required = [k for k in required if not os.getenv(k)]
     missing_optional = [k for k in _OPTIONAL_WARN if not os.getenv(k)]
 
     if missing_required:

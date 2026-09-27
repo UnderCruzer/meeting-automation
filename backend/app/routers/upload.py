@@ -1,3 +1,5 @@
+import asyncio
+import os
 import json
 import logging
 from pathlib import Path
@@ -5,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 
 from app.models.meeting import MeetingMetadata, UploadResponse
+from app.services.workspace import Workspace
 from app.services.guard import mask_transcript_segments, save_guard_report
 from app.services.orchestrator import analyse, save_analysis
 from app.services.retrieval import retrieve_context
@@ -33,7 +36,7 @@ async def upload_audio(
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    audio_bytes = await audio.read()
+    audio_bytes = await audio.read(MAX_FILE_BYTES + 1)
     if len(audio_bytes) > MAX_FILE_BYTES:
         raise HTTPException(status_code=413, detail="Audio file exceeds 500 MB limit")
 
@@ -44,6 +47,8 @@ async def upload_audio(
     file_key = await storage.save_audio(audio_bytes, meta.meetingId)
     await storage.save_metadata(file_key, meta.model_dump())
 
+    job_id = file_key.split("/")[-1][:-4]
+    await asyncio.to_thread(request.app.state.workspace.create, job_id, meta.title)
     audio_path = storage.base_dir / file_key
     background_tasks.add_task(_run_stt_and_guard, audio_path, file_key, meta.meetingId, storage.base_dir)
 
@@ -54,6 +59,8 @@ async def upload_audio(
 async def _run_stt_and_guard(
     audio_path: Path, file_key: str, meeting_id: str, base_dir: Path
 ) -> None:
+    workspace = await asyncio.to_thread(Workspace, base_dir)
+    job_id = file_key.split("/")[-1][:-4]
     try:
         transcript = await transcribe(audio_path, meeting_id)
 
@@ -76,6 +83,10 @@ async def _run_stt_and_guard(
         # Enrich with citations + quality validation
         summary = build_summary(analysis, transcript)
         await save_summary(summary, file_key, base_dir)
+
+        await asyncio.to_thread(workspace.finish, job_id, summary.model_dump())
+        if os.getenv("WORKSPACE_MODE") == "standalone":
+            return
 
         # Bounded retrieval — fetch related Jira/Confluence/Slack context
         context = await retrieve_context(analysis)
@@ -117,4 +128,5 @@ async def _run_stt_and_guard(
             summary.quality_ok, len(context.items), context.sources_searched,
         )
     except Exception:
+        await asyncio.to_thread(workspace.fail, job_id)
         logger.exception("[STT+Guard] Failed for %s", meeting_id)
