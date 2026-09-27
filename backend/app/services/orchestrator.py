@@ -117,7 +117,7 @@ async def analyse(
 
     # Include speaker-labelled transcript when diarization has been applied
     has_diarization = len({s.speaker for s in transcript.segments}) > 1
-    if has_diarization:
+    if has_diarization and masked_text is None:
         diarized_text = format_diarized_transcript(transcript)
         user_content = (
             f"Meeting transcript ({transcript.language}, {transcript.duration:.0f}s)"

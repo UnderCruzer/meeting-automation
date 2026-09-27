@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 async function forward(req: NextRequest, { params }: { params: { path?: string[] } }) {
   const path = params.path ?? [];
+  if (path.length === 1 && path[0] === "config" && req.method === "GET") {
+    return NextResponse.json({ ephemeral: process.env.WORKSPACE_STORAGE === "ephemeral" });
+  }
   if (!(path.length === 1 && path[0] === "jobs" && req.method === "GET") &&
       !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "decision" && req.method === "POST")) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });

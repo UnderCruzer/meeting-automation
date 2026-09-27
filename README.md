@@ -12,6 +12,15 @@ Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 
 
 이 구성은 Slack/Jira/Confluence로 발송하지 않습니다. 녹음과 회의 결과, 승인 상태는 `meeting-data` 볼륨에 저장됩니다. 같은 서버에서 재배포해도 볼륨을 유지하면 보존됩니다. 백업 대상에 포함하고 `down -v`는 사용하지 마세요.
 
+### Hugging Face 배포
+
+- 배포 대상 Space: https://huggingface.co/spaces/UnderCruzer/meeting-automation
+- 배포 후 앱 주소: https://undercruzer-meeting-automation.hf.space
+- 로그인 이름: `workspace`. 비밀번호는 로컬 배포 자격증명 파일에서 확인하거나 Space Secrets의 `WORKSPACE_PASSWORD`를 변경합니다.
+- `deploy/huggingface/Dockerfile`을 업로드 루트의 `Dockerfile`로, 해당 폴더의 README를 Space 루트 README로 사용합니다. 프런트엔드와 백엔드를 하나의 컨테이너에서 실행합니다.
+- 이 무료 체험 배포에는 영구 볼륨이 없습니다. 재시작/재배포로 회의와 녹음이 소실될 수 있습니다. 위 Compose의 볼륨 보존 설명은 자체 서버에만 해당합니다.
+- 배포할 때는 소스 파일만 포함하고 `.env`, 로컬 데이터, 의존성 폴더, Git 메타데이터를 제외합니다.
+
 ### 배포 범위와 다음 단계
 
 Docker를 지원하는 서버에서 동일한 구성으로 실행하고, 3001 포트 앞에 **HTTPS와 접근 제한**을 설정합니다. 백엔드 포트는 호스트에 노출하지 않습니다. 여러 인스턴스 대신 백엔드 한 개로 실행합니다.
