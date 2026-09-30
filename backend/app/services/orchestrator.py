@@ -1,28 +1,26 @@
 from __future__ import annotations
 """
-AI Orchestrator — analyse meeting transcript with Claude API.
+AI Orchestrator — analyse meeting transcript with the configured LLM (Gemini or Claude).
 
 Extracts: topics, decisions, action items, participants, KR/EN summary, routing.
-Uses claude-sonnet-4-6 with tool_use to get structured JSON output reliably.
+Uses structured output (Gemini responseSchema / Claude tool_use) for reliable JSON.
 """
 import json
 import logging
-import os
 from pathlib import Path
 
 import aiofiles
-import anthropic
 
 from app.models.analysis import OrchestratorOutput
 from app.models.transcript import TranscriptResult
+from app.services import llm
 from app.services.diarization import format_diarized_transcript
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-sonnet-4-6"
 _MAX_TOKENS = 4096
-# claude-sonnet-4-6 context window is 200k tokens (~800k chars).
-# Reserve headroom for system prompt, tool schema, and response.
+# Smallest supported context window is Claude's 200k tokens (~800k chars).
+# Reserve headroom for system prompt, schema, and response.
 _TRANSCRIPT_CHAR_LIMIT = 600_000
 
 _ANALYSIS_TOOL = {
@@ -97,13 +95,9 @@ async def analyse(
     masked_text: str | None = None,
 ) -> OrchestratorOutput:
     """
-    Analyse a transcript with Claude API.
+    Analyse a transcript with the configured LLM.
     Uses masked_text if available to avoid sending PII to the API.
     """
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set")
-
     text = masked_text if masked_text is not None else transcript.full_text
     if not text.strip():
         raise ValueError("Transcript is empty — cannot analyse")
@@ -128,25 +122,14 @@ async def analyse(
             f"Meeting transcript ({transcript.language}, {transcript.duration:.0f}s):\n\n{text}"
         )
 
-    client = anthropic.AsyncAnthropic(api_key=api_key)
-    response = await client.messages.create(
-        model=_MODEL,
-        max_tokens=_MAX_TOKENS,
+    raw = await llm.generate_structured(
+        prompt=user_content,
         system=_SYSTEM_PROMPT,
-        tools=[_ANALYSIS_TOOL],
-        tool_choice={"type": "tool", "name": "analyse_meeting"},
-        messages=[{"role": "user", "content": user_content}],
+        name=_ANALYSIS_TOOL["name"],
+        description=_ANALYSIS_TOOL["description"],
+        schema=_ANALYSIS_TOOL["input_schema"],
+        max_tokens=_MAX_TOKENS,
     )
-
-    # Extract tool_use block
-    tool_block = next(
-        (b for b in response.content if b.type == "tool_use"),
-        None,
-    )
-    if tool_block is None:
-        raise RuntimeError("Claude did not return a tool_use block")
-
-    raw: dict = tool_block.input  # already a dict when using tool_use
     return OrchestratorOutput(meeting_id=transcript.meetingId, **raw)
 
 
