@@ -1,12 +1,17 @@
 """
 Sliding-window rate limiter middleware for POST /upload.
 
-Limit: UPLOAD_RATE_LIMIT requests per UPLOAD_RATE_WINDOW seconds per IP.
+Limit: UPLOAD_RATE_LIMIT requests per UPLOAD_RATE_WINDOW seconds per client IP.
 Defaults: 10 requests / 60 seconds.
+
+Behind the web proxy every request comes from 127.0.0.1, so X-Client-IP is used
+instead — but only when the request carries the valid backend API key (this
+middleware runs before ApiKeyMiddleware, so it checks the key itself).
 
 In-memory store — resets on restart. Sufficient for single-instance MVP.
 Replace with Redis + lua script for multi-instance deployments.
 """
+import hmac
 import os
 import time
 import threading
@@ -31,7 +36,7 @@ class UploadRateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         limit, window = self._limit, self._window
-        ip = request.client.host if request.client else "unknown"
+        ip = _client_ip(request)
         now = time.monotonic()
 
         with self._lock:
@@ -50,3 +55,12 @@ class UploadRateLimitMiddleware(BaseHTTPMiddleware):
             q.append(now)
 
         return await call_next(request)
+
+
+def _client_ip(request: Request) -> str:
+    api_key = os.getenv("BACKEND_API_KEY", "")
+    forwarded = request.headers.get("X-Client-IP", "").strip()
+    provided = request.headers.get("X-API-Key", "")
+    if api_key and forwarded and hmac.compare_digest(provided.encode(), api_key.encode()):
+        return forwarded
+    return request.client.host if request.client else "unknown"

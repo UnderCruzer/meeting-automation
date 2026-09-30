@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clientIp } from "@/lib/clientIp";
 
 /**
  * Server-side upload proxy.
@@ -13,6 +14,8 @@ export async function POST(req: NextRequest) {
 
   const headers: HeadersInit = {};
   if (apiKey) headers["X-API-Key"] = apiKey;
+  // Backend rate-limits per client; every proxied request would otherwise look like 127.0.0.1.
+  headers["X-Client-IP"] = clientIp(req.headers);
 
   let res: Response;
   try {

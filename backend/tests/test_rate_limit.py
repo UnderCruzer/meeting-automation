@@ -67,3 +67,26 @@ class TestUploadRateLimit:
         # so the second one may be rate-limited — just check no crash)
         assert r1.status_code in (200, 429)
         assert r2.status_code in (200, 429)
+
+
+class TestForwardedClientIp:
+    def test_trusted_proxy_ip_tracked_separately(self, monkeypatch):
+        monkeypatch.setenv("BACKEND_API_KEY", "internal-test-key")
+        client = TestClient(_make_app(limit=1))
+        auth = {"X-API-Key": "internal-test-key"}
+        assert client.post("/upload", headers={**auth, "X-Client-IP": "1.1.1.1"}).status_code == 200
+        assert client.post("/upload", headers={**auth, "X-Client-IP": "2.2.2.2"}).status_code == 200
+        assert client.post("/upload", headers={**auth, "X-Client-IP": "1.1.1.1"}).status_code == 429
+
+    def test_forwarded_ip_ignored_without_valid_key(self, monkeypatch):
+        monkeypatch.setenv("BACKEND_API_KEY", "internal-test-key")
+        client = TestClient(_make_app(limit=1))
+        assert client.post("/upload", headers={"X-API-Key": "wrong", "X-Client-IP": "1.1.1.1"}).status_code == 200
+        # Spoofed header with a bad key falls back to the socket IP, which is now exhausted.
+        assert client.post("/upload", headers={"X-API-Key": "wrong", "X-Client-IP": "9.9.9.9"}).status_code == 429
+
+    def test_forwarded_ip_ignored_when_no_key_configured(self, monkeypatch):
+        monkeypatch.delenv("BACKEND_API_KEY", raising=False)
+        client = TestClient(_make_app(limit=1))
+        assert client.post("/upload", headers={"X-Client-IP": "1.1.1.1"}).status_code == 200
+        assert client.post("/upload", headers={"X-Client-IP": "2.2.2.2"}).status_code == 429
