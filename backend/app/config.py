@@ -7,10 +7,16 @@ so operators know exactly what to set before the first request fails silently.
 import logging
 import os
 
+from app.services import llm
+
 logger = logging.getLogger(__name__)
 
-_REQUIRED = {
+_LLM_KEYS = {
+    "GEMINI_API_KEY": "Gemini AI 분석 (orchestrator)",
     "ANTHROPIC_API_KEY": "Claude AI 분석 (orchestrator)",
+}
+
+_REQUIRED = {
     "SLACK_BOT_TOKEN": "Slack 메시지 발송 (review, digest, followup)",
 }
 
@@ -23,7 +29,8 @@ _OPTIONAL_WARN = {
 
 
 def validate_env() -> None:
-    required = dict(_REQUIRED)
+    llm_key = llm.api_key_env()  # raises on unsupported LLM_PROVIDER
+    required = {llm_key: _LLM_KEYS[llm_key], **_REQUIRED}
     if os.getenv("WORKSPACE_MODE") == "standalone":
         required.pop("SLACK_BOT_TOKEN")
     missing_required = [k for k in required if not os.getenv(k)]
@@ -32,7 +39,7 @@ def validate_env() -> None:
     if missing_required:
         for key in missing_required:
             logger.error(
-                "[Config] 필수 환경변수 누락: %s — %s", key, _REQUIRED[key]
+                "[Config] 필수 환경변수 누락: %s — %s", key, required[key]
             )
         raise RuntimeError(
             f"필수 환경변수가 설정되지 않았습니다: {', '.join(missing_required)}"
