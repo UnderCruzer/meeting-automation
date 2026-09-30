@@ -16,7 +16,7 @@ COPY --chown=workspace backend/app /app/backend/app
 COPY --from=ui --chown=workspace /build/.next/standalone /app/frontend
 COPY --from=ui --chown=workspace /build/.next/static /app/frontend/.next/static
 COPY --from=ui --chown=workspace /build/public /app/frontend/public
-COPY --chown=workspace deploy/huggingface/start.py /app/start.py
+COPY --chown=workspace deploy/container/start.py /app/start.py
 RUN mkdir -p /app/data/recordings && chown -R workspace:workspace /app/data
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 WORKSPACE_MODE=standalone STORAGE_DIR=/app/data/recordings UPLOAD_API_URL=http://127.0.0.1:8000 WORKSPACE_STORAGE=ephemeral
 USER workspace

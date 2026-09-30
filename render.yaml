@@ -1,0 +1,27 @@
+# Render Blueprint — 단일 팀 체험용 독립형 워크스페이스 (무료 플랜)
+# 무료 인스턴스는 15분 미사용 시 잠들고, 재시작·재배포·잠들기 시 데이터가 초기화됩니다.
+services:
+  - type: web
+    name: meeting-automation
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./deploy/container/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      # 백엔드 내부 인증 키 — 사람이 쓸 일 없음, Render가 임의 값 생성
+      - key: BACKEND_API_KEY
+        generateValue: true
+      # 로그인 비밀번호(사용자 이름: workspace) — 대시보드 Environment에서 확인·변경
+      - key: WORKSPACE_PASSWORD
+        generateValue: true

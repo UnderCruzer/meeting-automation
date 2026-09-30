@@ -42,7 +42,8 @@ def main():
             stopped.wait(1)
         web_env = {key: value for key, value in os.environ.items()
                    if key not in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY")}
-        web_env.update(PORT="7860", HOSTNAME="0.0.0.0")
+        # Render/Cloud Run inject PORT; Hugging Face uses the fixed app_port 7860.
+        web_env.update(PORT=os.environ.get("PORT", "7860"), HOSTNAME="0.0.0.0")
         children.append(subprocess.Popen(["node", "server.js"], cwd="/app/frontend", env=web_env))
         while not stopped.wait(1):
             if any(child.poll() is not None for child in children):
