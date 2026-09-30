@@ -24,7 +24,10 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio
+        run: pip install -r requirements.txt pytest pytest-asyncio pip-audit
+
+      - name: Dependency audit
+        run: pip-audit -r requirements.txt
 
       - name: Run tests
         run: python -m pytest tests/ -v
@@ -41,13 +44,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Type check
         run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
 
   slack-bot:
     name: Slack Bot — lint
@@ -61,10 +70,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Check syntax
         run: node --check src/app.js src/handlers/actions.js src/services/scheduler.js src/services/alertStore.js src/services/timezone.js
