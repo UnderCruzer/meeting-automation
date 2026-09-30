@@ -6,6 +6,7 @@ Exempt paths: /health (liveness probe), /docs, /openapi.json (FastAPI dev UI).
 
 If BACKEND_API_KEY is not set, middleware is a no-op (local dev convenience).
 """
+import hmac
 import os
 
 from fastapi import Request
@@ -25,7 +26,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         provided = request.headers.get("X-API-Key", "")
-        if provided != api_key:
+        if not hmac.compare_digest(provided.encode(), api_key.encode()):
             return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
         return await call_next(request)
