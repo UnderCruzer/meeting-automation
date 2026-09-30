@@ -9,12 +9,17 @@
   },
   "dependencies": {
     "@slack/bolt": "^3.21.1",
-    "express": "^4.21.2",
     "dayjs": "^1.11.13",
     "dotenv": "^16.4.5",
-    "node-cron": "^3.0.3"
+    "express": "^4.21.2",
+    "node-cron": "^4.6.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
+  },
+  "overrides": {
+    "@slack/web-api": {
+      "form-data": "^2.5.6"
+    }
   }
 }
