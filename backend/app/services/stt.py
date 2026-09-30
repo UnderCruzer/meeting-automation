@@ -8,9 +8,11 @@ Set STT_BACKEND=local in .env to force local model.
 """
 import asyncio
 import functools
+import io
 import json
 import logging
 import os
+import wave
 from pathlib import Path
 
 import aiofiles
@@ -37,15 +39,56 @@ async def transcribe(audio_path: Path, meeting_id: str) -> TranscriptResult:
     return await diarize(audio_path, result)
 
 
-async def _transcribe_api(audio_path: Path, meeting_id: str) -> TranscriptResult:
-    import io
+# Groq/OpenAI Whisper API reject files over 25 MB (~13 min of 16kHz mono WAV).
+_API_MAX_BYTES = 24 * 1024 * 1024
+_DEFAULT_CHUNK_SECONDS = 600
 
+
+def _split_wav(audio_bytes: bytes, max_bytes: int = 0) -> list[tuple[float, bytes]]:
+    """Split WAV bytes into (offset_seconds, wav_bytes) chunks that fit the API limit.
+
+    Non-WAV input or input already under the limit is returned as a single chunk.
+    """
+    max_bytes = max_bytes or _API_MAX_BYTES
+    if len(audio_bytes) <= max_bytes:
+        return [(0.0, audio_bytes)]
+    try:
+        src = wave.open(io.BytesIO(audio_bytes), "rb")
+    except (wave.Error, EOFError):
+        return [(0.0, audio_bytes)]
+
+    with src:
+        params = src.getparams()
+        rate = params.framerate
+        frame_bytes = params.sampwidth * params.nchannels
+        chunk_seconds = float(os.getenv("STT_CHUNK_SECONDS", _DEFAULT_CHUNK_SECONDS))
+        # Never exceed the byte limit, whatever STT_CHUNK_SECONDS says (44 = WAV header).
+        max_frames = (max_bytes - 44) // frame_bytes
+        frames_per_chunk = max(1, min(int(chunk_seconds * rate), max_frames))
+
+        chunks: list[tuple[float, bytes]] = []
+        position = 0
+        while True:
+            frames = src.readframes(frames_per_chunk)
+            if not frames:
+                break
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as dst:
+                dst.setparams(params)
+                dst.writeframes(frames)
+            chunks.append((position / rate, buf.getvalue()))
+            position += len(frames) // frame_bytes
+    return chunks
+
+
+def _seg_value(seg, key):
+    return seg[key] if isinstance(seg, dict) else getattr(seg, key)
+
+
+async def _transcribe_chunk(audio_bytes: bytes) -> tuple[list[TranscriptSegment], str, float, str]:
+    """Transcribe one API-sized chunk. Returns (segments, language, duration, backend)."""
     groq_key = os.getenv("GROQ_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
-
-    audio_bytes = await asyncio.get_event_loop().run_in_executor(
-        None, audio_path.read_bytes
-    )
 
     if groq_key:
         from groq import AsyncGroq
@@ -56,54 +99,66 @@ async def _transcribe_api(audio_path: Path, meeting_id: str) -> TranscriptResult
             response_format="verbose_json",
             timestamp_granularities=["segment"],
         )
-        raw_segs = response.segments or []
-        segments = [
-            TranscriptSegment(
-                start=seg["start"] if isinstance(seg, dict) else seg.start,
-                end=seg["end"] if isinstance(seg, dict) else seg.end,
-                text=(seg["text"] if isinstance(seg, dict) else seg.text).strip(),
-            )
-            for seg in raw_segs
-        ]
-        full_text = " ".join(s.text for s in segments)
-        lang = response.language if isinstance(response.language, str) else "unknown"
-        dur = response.duration if isinstance(response.duration, (int, float)) else 0.0
-        return TranscriptResult(
-            meetingId=meeting_id,
-            language=lang or "unknown",
-            duration=dur,
-            segments=segments,
-            full_text=full_text,
-            backend="groq-whisper",
+        backend = "groq-whisper"
+    elif openai_key:
+        try:
+            from openai import AsyncOpenAI
+        except ImportError:
+            raise RuntimeError("openai package not installed. Run: pip install openai")
+        client = AsyncOpenAI(api_key=openai_key)
+        response = await client.audio.transcriptions.create(
+            model="whisper-1",
+            file=("recording.wav", io.BytesIO(audio_bytes), "audio/wav"),
+            response_format="verbose_json",
+            timestamp_granularities=["segment"],
         )
-
-    if not openai_key:
+        backend = "whisper-api"
+    else:
         raise RuntimeError("OPENAI_API_KEY or GROQ_API_KEY not set")
 
-    try:
-        from openai import AsyncOpenAI
-    except ImportError:
-        raise RuntimeError("openai package not installed. Run: pip install openai")
-
-    client = AsyncOpenAI(api_key=openai_key)
-    response = await client.audio.transcriptions.create(
-        model="whisper-1",
-        file=("recording.wav", io.BytesIO(audio_bytes), "audio/wav"),
-        response_format="verbose_json",
-        timestamp_granularities=["segment"],
-    )
     segments = [
-        TranscriptSegment(start=seg.start, end=seg.end, text=seg.text.strip())
+        TranscriptSegment(
+            start=_seg_value(seg, "start"),
+            end=_seg_value(seg, "end"),
+            text=_seg_value(seg, "text").strip(),
+        )
         for seg in (response.segments or [])
     ]
-    full_text = " ".join(s.text for s in segments)
+    lang = response.language if isinstance(response.language, str) else ""
+    dur = response.duration if isinstance(response.duration, (int, float)) else 0.0
+    return segments, lang or "unknown", float(dur), backend
+
+
+async def _transcribe_api(audio_path: Path, meeting_id: str) -> TranscriptResult:
+    audio_bytes = await asyncio.get_event_loop().run_in_executor(
+        None, audio_path.read_bytes
+    )
+    chunks = _split_wav(audio_bytes)
+    if len(chunks) > 1:
+        logger.info("[STT] %s — splitting into %d chunks for API limit", meeting_id, len(chunks))
+
+    segments: list[TranscriptSegment] = []
+    language = "unknown"
+    duration = 0.0
+    backend = "whisper-api"
+    # Sequential on purpose: keeps provider rate limits predictable.
+    for offset, chunk in chunks:
+        chunk_segments, chunk_lang, chunk_dur, backend = await _transcribe_chunk(chunk)
+        segments.extend(
+            TranscriptSegment(start=s.start + offset, end=s.end + offset, text=s.text)
+            for s in chunk_segments
+        )
+        if language == "unknown":
+            language = chunk_lang
+        duration = offset + chunk_dur
+
     return TranscriptResult(
         meetingId=meeting_id,
-        language=response.language or "unknown",
-        duration=response.duration or 0.0,
+        language=language,
+        duration=duration,
         segments=segments,
-        full_text=full_text,
-        backend="whisper-api",
+        full_text=" ".join(s.text for s in segments),
+        backend=backend,
     )
 
 
