@@ -1,3 +1,38 @@
+## 독립형 회의 워크스페이스 (단일 팀 파일럿)
+
+Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 승인/거절 → 승인한 업무 목록**을 사용할 수 있습니다. 기존 Slack 기반 흐름도 유지됩니다.
+
+### 실행
+
+1. `backend/.env`에 `ANTHROPIC_API_KEY`와 전사용 `GROQ_API_KEY` 또는 `OPENAI_API_KEY`를 설정합니다. 현재 분석은 Claude를 사용합니다. 실제 업로드 시 사용 중인 공급자 요금이 발생할 수 있습니다.
+2. 루트 `.env`에 서로 다른 임의의 긴 값으로 `BACKEND_API_KEY`와 `WORKSPACE_PASSWORD`를 설정합니다. 비밀번호는 ASCII 문자를 사용합니다.
+3. `docker compose -f compose.standalone.yml up --build -d`를 실행합니다.
+4. `http://localhost:3001`에 접속합니다. 사용자 이름은 `workspace`, 비밀번호는 설정한 값입니다.
+5. 참석자 동의를 받은 녹음을 올리고, 분석 완료 후 근거와 품질 경고를 확인하여 승인합니다.
+
+이 구성은 Slack/Jira/Confluence로 발송하지 않습니다. 녹음과 회의 결과, 승인 상태는 `meeting-data` 볼륨에 저장됩니다. 같은 서버에서 재배포해도 볼륨을 유지하면 보존됩니다. 백업 대상에 포함하고 `down -v`는 사용하지 마세요.
+
+### Hugging Face 배포
+
+- 배포 대상 Space: https://huggingface.co/spaces/UnderCruzer/meeting-automation
+- 배포 후 앱 주소: https://undercruzer-meeting-automation.hf.space
+- 로그인 이름: `workspace`. 비밀번호는 로컬 배포 자격증명 파일에서 확인하거나 Space Secrets의 `WORKSPACE_PASSWORD`를 변경합니다.
+- `deploy/huggingface/Dockerfile`을 업로드 루트의 `Dockerfile`로, 해당 폴더의 README를 Space 루트 README로 사용합니다. 프런트엔드와 백엔드를 하나의 컨테이너에서 실행합니다.
+- 이 무료 체험 배포에는 영구 볼륨이 없습니다. 재시작/재배포로 회의와 녹음이 소실될 수 있습니다. 위 Compose의 볼륨 보존 설명은 자체 서버에만 해당합니다.
+- 배포할 때는 소스 파일만 포함하고 `.env`, 로컬 데이터, 의존성 폴더, Git 메타데이터를 제외합니다.
+
+### 배포 범위와 다음 단계
+
+Docker를 지원하는 서버에서 동일한 구성으로 실행하고, 3001 포트 앞에 **HTTPS와 접근 제한**을 설정합니다. 백엔드 포트는 호스트에 노출하지 않습니다. 여러 인스턴스 대신 백엔드 한 개로 실행합니다.
+
+- 공유 비밀번호를 사용하는 단일 팀 파일럿입니다. 사용자 가입·팀별 권한 분리·개별 감사 이력은 아직 없습니다.
+- 처리 중 서버가 재시작되면 해당 작업은 실패로 표시되며 다시 업로드해야 합니다. 재개 가능한 작업 큐는 후속 범위입니다.
+- 승인 결과는 내부 목록에 보관됩니다. 담당자 알림, 완료 상태 변경, 삭제/보존 정책 UI, 초안 수정은 후속 범위입니다.
+- 근거 연결은 키워드 유사도 기반 후보이며 사실 검증을 보장하지 않습니다.
+- 목록에는 최근 100개 회의가 표시됩니다. 사용자별 데이터 분리 이전에 불특정 다수에게 공개하지 않습니다.
+
+---
+
 # Meeting Automation Workflow
 
 > 회의에서 인사이트를 추출하고 Action으로 연결해 전 세계 팀이 빠르게 실행할 수 있도록 돕는 22-component AI 워크플로우

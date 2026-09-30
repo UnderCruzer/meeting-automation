@@ -1,0 +1,26 @@
+# 단일 팀 파일럿. 서버에서는 HTTPS 역방향 프록시 뒤에 배치한다.
+services:
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      WORKSPACE_MODE: standalone
+      STORAGE_DIR: /app/data/recordings
+      BACKEND_API_KEY: ${BACKEND_API_KEY:?Set BACKEND_API_KEY in root .env}
+    volumes:
+      - meeting-data:/app/data
+    restart: unless-stopped
+  recording-page:
+    build: ./recording-page
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      UPLOAD_API_URL: http://backend:8000
+      BACKEND_API_KEY: ${BACKEND_API_KEY:?Set BACKEND_API_KEY in root .env}
+      WORKSPACE_MODE: standalone
+      WORKSPACE_PASSWORD: ${WORKSPACE_PASSWORD:?Set ASCII WORKSPACE_PASSWORD in root .env}
+    depends_on:
+      - backend
+    restart: unless-stopped
+volumes:
+  meeting-data:

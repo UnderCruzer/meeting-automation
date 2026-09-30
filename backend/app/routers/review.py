@@ -152,7 +152,7 @@ async def _send_slack_review(req: SendReviewRequest) -> str:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
                 "https://slack.com/api/chat.postMessage",
-                json={"channel": f"#{channel}", "blocks": blocks, "text": "회의 초안 검토 요청"},
+                json={"channel": channel, "blocks": blocks, "text": "회의 초안 검토 요청"},
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             )
             data = resp.json()
@@ -174,7 +174,7 @@ async def _update_slack_review(slack_ts: str, job_id: str) -> None:
         async with httpx.AsyncClient(timeout=10) as client:
             await client.post(
                 "https://slack.com/api/chat.update",
-                json={"channel": f"#{channel}", "ts": slack_ts,
+                json={"channel": channel, "ts": slack_ts,
                       "text": f"✅ 검토 완료 — job `{job_id}`",
                       "blocks": [{"type": "section", "text": {"type": "mrkdwn",
                                                                "text": f"✅ *검토 완료* — job `{job_id}` 처리 중입니다."}}]},

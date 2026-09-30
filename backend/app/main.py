@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.services.workspace import Workspace
+from app.routers.workspace import router as workspace_router
 from app.config import validate_env
 from app.middleware.auth import ApiKeyMiddleware
 from app.middleware.rate_limit import UploadRateLimitMiddleware
@@ -25,6 +27,8 @@ async def lifespan(app: FastAPI):
     validate_env()
     storage_dir = os.getenv("STORAGE_DIR", "./data/recordings")
     app.state.storage = LocalStorage(storage_dir)
+    app.state.workspace = await asyncio.to_thread(Workspace, storage_dir)
+    await asyncio.to_thread(app.state.workspace.recover)
     # Start write queue worker as background task
     worker_task = asyncio.create_task(start_worker())
     yield
@@ -45,6 +49,7 @@ app.add_middleware(
 )
 
 app.include_router(upload_router)
+app.include_router(workspace_router)
 app.include_router(review_router)
 app.include_router(digest_router)
 app.include_router(followup_router)
@@ -62,7 +67,7 @@ async def health() -> dict:
         "OPENAI_API_KEY": bool(os.getenv("OPENAI_API_KEY")),
     }
 
-    healthy = storage_ok and env_status["ANTHROPIC_API_KEY"] and env_status["SLACK_BOT_TOKEN"]
+    healthy = storage_ok and env_status["ANTHROPIC_API_KEY"] and (os.getenv("WORKSPACE_MODE") == "standalone" or env_status["SLACK_BOT_TOKEN"])
 
     return {
         "status": "ok" if healthy else "degraded",
