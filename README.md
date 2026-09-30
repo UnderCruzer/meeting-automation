@@ -18,7 +18,7 @@ Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 
 - 배포 대상 Space: https://huggingface.co/spaces/UnderCruzer/meeting-automation
 - 배포 후 앱 주소: https://undercruzer-meeting-automation.hf.space
 - 로그인 이름: `workspace`. 비밀번호는 로컬 배포 자격증명 파일에서 확인하거나 Space Secrets의 `WORKSPACE_PASSWORD`를 변경합니다.
-- `deploy/huggingface/Dockerfile`을 업로드 루트의 `Dockerfile`로, 해당 폴더의 README를 Space 루트 README로 사용합니다. 프런트엔드와 백엔드를 하나의 컨테이너에서 실행합니다.
+- `deploy/container/Dockerfile`을 업로드 루트의 `Dockerfile`로, `deploy/huggingface/README.md`를 Space 루트 README로 사용합니다. 프런트엔드와 백엔드를 하나의 컨테이너에서 실행합니다.
 - 이 무료 체험 배포에는 영구 볼륨이 없습니다. 재시작/재배포로 회의와 녹음이 소실될 수 있습니다. 위 Compose의 볼륨 보존 설명은 자체 서버에만 해당합니다.
 - 배포할 때는 소스 파일만 포함하고 `.env`, 로컬 데이터, 의존성 폴더, Git 메타데이터를 제외합니다.
 
