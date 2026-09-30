@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 
 from app.models.meeting import MeetingMetadata, UploadResponse
+from app.storage.local import AudioSizeError
 from app.services.workspace import Workspace
 from app.services.guard import mask_transcript_segments, save_guard_report
 from app.services.orchestrator import analyse, save_analysis
@@ -36,23 +37,18 @@ async def upload_audio(
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    audio_bytes = await audio.read(MAX_FILE_BYTES + 1)
-    if len(audio_bytes) > MAX_FILE_BYTES:
-        raise HTTPException(status_code=413, detail="Audio file exceeds 500 MB limit")
-
-    if len(audio_bytes) < 44:
-        raise HTTPException(status_code=422, detail="Audio file too small to be valid WAV")
-
     storage = request.app.state.storage
-    file_key = await storage.save_audio(audio_bytes, meta.meetingId)
+    try:
+        # Streamed to disk: a long meeting must not be held in memory (512 MB hosts).
+        file_key = await storage.save_audio_stream(audio, meta.meetingId, MAX_FILE_BYTES)
+    except AudioSizeError as exc:
+        raise HTTPException(status_code=413 if exc.too_large else 422, detail=str(exc))
     await storage.save_metadata(file_key, meta.model_dump())
 
     job_id = file_key.split("/")[-1][:-4]
     await asyncio.to_thread(request.app.state.workspace.create, job_id, meta.title)
     audio_path = storage.base_dir / file_key
     background_tasks.add_task(_run_stt_and_guard, audio_path, file_key, meta.meetingId, storage.base_dir)
-
-    job_id = file_key.split("/")[-1][:-4]  # safe suffix strip
     return UploadResponse(jobId=job_id, fileKey=file_key, meetingId=meta.meetingId)
 
 

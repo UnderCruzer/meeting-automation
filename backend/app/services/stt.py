@@ -14,6 +14,7 @@ import logging
 import os
 import wave
 from pathlib import Path
+from typing import BinaryIO, Iterator
 
 import aiofiles
 
@@ -44,18 +45,23 @@ _API_MAX_BYTES = 24 * 1024 * 1024
 _DEFAULT_CHUNK_SECONDS = 600
 
 
-def _split_wav(audio_bytes: bytes, max_bytes: int = 0) -> list[tuple[float, bytes]]:
-    """Split WAV bytes into (offset_seconds, wav_bytes) chunks that fit the API limit.
+def _iter_wav_chunks(source: BinaryIO, size: int, max_bytes: int = 0) -> Iterator[tuple[float, bytes]]:
+    """Yield (offset_seconds, wav_bytes) chunks that fit the API limit, reading lazily.
 
-    Non-WAV input or input already under the limit is returned as a single chunk.
+    Only one chunk is held in memory at a time. Non-WAV input or input already
+    under the limit is yielded whole as a single chunk.
     """
     max_bytes = max_bytes or _API_MAX_BYTES
-    if len(audio_bytes) <= max_bytes:
-        return [(0.0, audio_bytes)]
+    if size <= max_bytes:
+        source.seek(0)
+        yield 0.0, source.read()
+        return
     try:
-        src = wave.open(io.BytesIO(audio_bytes), "rb")
+        src = wave.open(source, "rb")
     except (wave.Error, EOFError):
-        return [(0.0, audio_bytes)]
+        source.seek(0)
+        yield 0.0, source.read()
+        return
 
     with src:
         params = src.getparams()
@@ -66,7 +72,6 @@ def _split_wav(audio_bytes: bytes, max_bytes: int = 0) -> list[tuple[float, byte
         max_frames = (max_bytes - 44) // frame_bytes
         frames_per_chunk = max(1, min(int(chunk_seconds * rate), max_frames))
 
-        chunks: list[tuple[float, bytes]] = []
         position = 0
         while True:
             frames = src.readframes(frames_per_chunk)
@@ -76,9 +81,13 @@ def _split_wav(audio_bytes: bytes, max_bytes: int = 0) -> list[tuple[float, byte
             with wave.open(buf, "wb") as dst:
                 dst.setparams(params)
                 dst.writeframes(frames)
-            chunks.append((position / rate, buf.getvalue()))
+            yield position / rate, buf.getvalue()
             position += len(frames) // frame_bytes
-    return chunks
+
+
+def _split_wav(audio_bytes: bytes, max_bytes: int = 0) -> list[tuple[float, bytes]]:
+    """In-memory convenience wrapper around _iter_wav_chunks."""
+    return list(_iter_wav_chunks(io.BytesIO(audio_bytes), len(audio_bytes), max_bytes))
 
 
 def _seg_value(seg, key):
@@ -130,27 +139,31 @@ async def _transcribe_chunk(audio_bytes: bytes) -> tuple[list[TranscriptSegment]
 
 
 async def _transcribe_api(audio_path: Path, meeting_id: str) -> TranscriptResult:
-    audio_bytes = await asyncio.get_event_loop().run_in_executor(
-        None, audio_path.read_bytes
-    )
-    chunks = _split_wav(audio_bytes)
-    if len(chunks) > 1:
-        logger.info("[STT] %s — splitting into %d chunks for API limit", meeting_id, len(chunks))
-
     segments: list[TranscriptSegment] = []
     language = "unknown"
     duration = 0.0
     backend = "whisper-api"
-    # Sequential on purpose: keeps provider rate limits predictable.
-    for offset, chunk in chunks:
-        chunk_segments, chunk_lang, chunk_dur, backend = await _transcribe_chunk(chunk)
-        segments.extend(
-            TranscriptSegment(start=s.start + offset, end=s.end + offset, text=s.text)
-            for s in chunk_segments
-        )
-        if language == "unknown":
-            language = chunk_lang
-        duration = offset + chunk_dur
+    size = audio_path.stat().st_size
+
+    # wave needs a sync file object; reads run in a worker thread, one chunk at a time.
+    with open(audio_path, "rb") as f:
+        chunks = _iter_wav_chunks(f, size)
+        index = 0
+        # Sequential on purpose: keeps provider rate limits predictable and memory flat.
+        while (item := await asyncio.to_thread(next, chunks, None)) is not None:
+            offset, chunk = item
+            index += 1
+            if size > _API_MAX_BYTES:
+                logger.info("[STT] %s — chunk %d at %.0fs", meeting_id, index, offset)
+            chunk_segments, chunk_lang, chunk_dur, backend = await _transcribe_chunk(chunk)
+            del chunk
+            segments.extend(
+                TranscriptSegment(start=s.start + offset, end=s.end + offset, text=s.text)
+                for s in chunk_segments
+            )
+            if language == "unknown":
+                language = chunk_lang
+            duration = offset + chunk_dur
 
     return TranscriptResult(
         meetingId=meeting_id,

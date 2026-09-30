@@ -32,6 +32,8 @@ function RecordPage() {
   const [uploadDone, setUploadDone] = useState(false);
 
   const meta = useMemo<MeetingMeta | null>(() => {
+    // Typed nullable once a pages/ directory exists; always set under the App Router.
+    if (!params) return null;
     const id = params.get("meetingId");
     const startTime = params.get("startTime");
     const endTime = params.get("endTime");

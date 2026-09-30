@@ -4,8 +4,8 @@ import { encodeToWav } from "@/lib/audioEncoder";
 
 type Action = { description: string; assignee: string; due_date: string; citation_text: string };
 type Job = { id: string; title: string; status: string; summary: null | { summary_ko: string; decisions: {text: string}[]; action_items: Action[]; quality_flags: {message: string}[] } };
-// Must stay under proxyClientMaxBodySize in next.config.js (160mb).
-const MAX_WAV_BYTES = 150 * 1024 * 1024;
+// Backend MAX_FILE_BYTES is 500 MB (~4.5 h of 16kHz mono WAV).
+const MAX_WAV_BYTES = 500 * 1024 * 1024;
 const labels: Record<string, string> = { processing: "분석 중", review: "검토 대기", approved: "승인 완료", rejected: "거절됨", failed: "처리 실패 — 파일을 다시 올려주세요" };
 
 export default function Home() {
@@ -35,7 +35,7 @@ export default function Home() {
     setBusy(true); setError("");
     try {
       const wav = await encodeToWav(file); const now = new Date().toISOString();
-      if (wav.size > MAX_WAV_BYTES) throw new Error("녹음이 너무 깁니다. 약 80분 이하로 나눠서 올려주세요.");
+      if (wav.size > MAX_WAV_BYTES) throw new Error("녹음이 너무 깁니다. 4시간 이하로 나눠서 올려주세요.");
       const payload = new FormData(); payload.set("audio", wav, "meeting.wav");
       payload.set("metadata", JSON.stringify({ meetingId: crypto.randomUUID(), title: data.get("title"), startTime: now, endTime: now }));
       const res = await fetch("/api/upload", { method: "POST", body: payload });
