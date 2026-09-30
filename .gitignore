@@ -27,3 +27,6 @@ recording-page/tsconfig.tsbuildinfo
 # 기타
 *.log
 .DS_Store
+
+# Python 가상환경
+.venv/
