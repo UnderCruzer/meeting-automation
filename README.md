@@ -30,6 +30,15 @@ Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 
 
 Docker Space는 현재 PRO 구독이 필요합니다. 사용할 경우 `deploy/container/Dockerfile`을 업로드 루트의 `Dockerfile`로, `deploy/huggingface/README.md`를 Space 루트 README로 사용하고 위와 같은 값을 Space Secrets에 등록합니다. 영구 저장소는 없습니다.
 
+### 보안 설정
+
+- **인증:** 공유 비밀번호(Basic 인증). 같은 IP에서 15분 내 `AUTH_MAX_FAILURES`(기본 20)회 틀리면 429로 잠시 차단됩니다.
+- **CSRF:** Basic 인증 정보는 다른 사이트의 요청에도 자동 첨부되므로, 상태를 바꾸는 요청은 `Sec-Fetch-Site`/`Origin`이 같은 출처일 때만 허용합니다.
+- **보안 헤더:** CSP(`frame-ancestors 'none'`), `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`(마이크만 허용), HSTS. `X-Powered-By`와 이미지 최적화 엔드포인트는 끕니다.
+- **요청 제한:** 업로드는 실제 클라이언트 IP 기준으로 제한합니다. 백엔드는 API 키가 맞는 내부 요청의 `X-Client-IP`만 신뢰합니다.
+- **의존성:** CI가 `pip-audit`, `npm audit --audit-level=high`로 알려진 취약점을 검사합니다.
+- **외부 전송:** 녹음 원본은 전사 공급자(Groq/OpenAI)로 그대로 전송되고, 개인정보 패턴을 가린 전사문이 LLM으로 전송됩니다. 각 공급자의 데이터 보관 정책을 확인하세요.
+
 ### 배포 범위와 다음 단계
 
 Docker를 지원하는 서버에서 동일한 구성으로 실행하고, 3001 포트 앞에 **HTTPS와 접근 제한**을 설정합니다. 백엔드 포트는 호스트에 노출하지 않습니다. 여러 인스턴스 대신 백엔드 한 개로 실행합니다.
