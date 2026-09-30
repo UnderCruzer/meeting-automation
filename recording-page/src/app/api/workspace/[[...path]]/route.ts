@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-async function forward(req: NextRequest, { params }: { params: { path?: string[] } }) {
-  const path = params.path ?? [];
+async function forward(req: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
+  const path = (await params).path ?? [];
   if (path.length === 1 && path[0] === "config" && req.method === "GET") {
     return NextResponse.json({ ephemeral: process.env.WORKSPACE_STORAGE === "ephemeral" });
   }

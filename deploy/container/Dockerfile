@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS ui
+FROM node:24-bookworm-slim AS ui
 WORKDIR /build
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY recording-page/package.json recording-page/package-lock.json ./
