@@ -13,14 +13,22 @@ Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 
 
 이 구성은 Slack/Jira/Confluence로 발송하지 않습니다. 녹음과 회의 결과, 승인 상태는 `meeting-data` 볼륨에 저장됩니다. 같은 서버에서 재배포해도 볼륨을 유지하면 보존됩니다. 백업 대상에 포함하고 `down -v`는 사용하지 마세요.
 
+### Render 무료 배포 (체험용)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/UnderCruzer/meeting-automation)
+
+1. 위 버튼 → Render 로그인(GitHub 연동) → Blueprint(`render.yaml`) 확인
+2. `GEMINI_API_KEY`, `GROQ_API_KEY`만 입력합니다. `BACKEND_API_KEY`와 `WORKSPACE_PASSWORD`는 Render가 임의 값으로 생성합니다.
+3. 배포 완료 후 서비스 **Environment** 탭에서 `WORKSPACE_PASSWORD`를 확인하고, `https://<서비스 이름>.onrender.com`에 사용자 이름 `workspace`로 접속합니다.
+
+- 프런트엔드와 백엔드를 하나의 컨테이너(`deploy/container/Dockerfile`)에서 실행하며, 백엔드는 외부에 노출되지 않습니다. `/api/healthz`만 인증 없이 응답합니다(상태만 반환).
+- main에 머지하면 자동 재배포됩니다.
+- **무료 인스턴스는 15분 미사용 시 잠들고(첫 접속 약 1분), 재시작·재배포·잠들기 시 회의와 녹음이 초기화됩니다.** 보존이 필요하면 유료 플랜 + Persistent Disk(`/app/data`)나 위 Compose 구성을 사용합니다.
+- 무료 인스턴스 메모리가 작아 매우 긴 녹음(1시간 이상)은 실패할 수 있습니다.
+
 ### Hugging Face 배포
 
-- 배포 대상 Space: https://huggingface.co/spaces/UnderCruzer/meeting-automation
-- 배포 후 앱 주소: https://undercruzer-meeting-automation.hf.space
-- 로그인 이름: `workspace`. 비밀번호는 로컬 배포 자격증명 파일에서 확인하거나 Space Secrets의 `WORKSPACE_PASSWORD`를 변경합니다.
-- `deploy/container/Dockerfile`을 업로드 루트의 `Dockerfile`로, `deploy/huggingface/README.md`를 Space 루트 README로 사용합니다. 프런트엔드와 백엔드를 하나의 컨테이너에서 실행합니다.
-- 이 무료 체험 배포에는 영구 볼륨이 없습니다. 재시작/재배포로 회의와 녹음이 소실될 수 있습니다. 위 Compose의 볼륨 보존 설명은 자체 서버에만 해당합니다.
-- 배포할 때는 소스 파일만 포함하고 `.env`, 로컬 데이터, 의존성 폴더, Git 메타데이터를 제외합니다.
+Docker Space는 현재 PRO 구독이 필요합니다. 사용할 경우 `deploy/container/Dockerfile`을 업로드 루트의 `Dockerfile`로, `deploy/huggingface/README.md`를 Space 루트 README로 사용하고 위와 같은 값을 Space Secrets에 등록합니다. 영구 저장소는 없습니다.
 
 ### 배포 범위와 다음 단계
 
