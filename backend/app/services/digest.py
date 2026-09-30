@@ -2,7 +2,7 @@
 Brief / Digest Automation — Issue #20
 
 Morning Brief (daily), Daily Digest, Weekly Digest, Meeting Agenda 생성.
-Claude API로 요약 생성 후 Slack 발송.
+설정된 LLM(Gemini/Claude)으로 요약 생성 후 Slack 발송.
 
 Scheduler entry points (call from a cron job or APScheduler):
     await send_morning_brief()
@@ -11,19 +11,18 @@ Scheduler entry points (call from a cron job or APScheduler):
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-import anthropic
 import httpx
+
+from app.services import llm
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-sonnet-4-6"
 _STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./data/recordings"))
 
 
@@ -54,7 +53,7 @@ def _load_transcripts_since(since: datetime) -> list[dict]:
     return results
 
 
-# ── Claude summariser ─────────────────────────────────────────────────────────
+# ── LLM summariser ─────────────────────────────────────────────────────────
 
 async def _generate_digest_text(
     analyses: list[dict],
@@ -115,17 +114,9 @@ async def _generate_digest_text(
     )
 
     try:
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", "")).messages.create(
-                model=_MODEL,
-                max_tokens=1024,
-                messages=[{"role": "user", "content": prompt}],
-            ),
-        )
-        return response.content[0].text
+        return await llm.generate_text(prompt=prompt, max_tokens=1024)
     except Exception as exc:
-        logger.warning("[Digest] Claude call failed: %s", exc)
+        logger.warning("[Digest] LLM call failed: %s", exc)
         return f"⚠️ 다이제스트 생성 실패: {exc}"
 
 
@@ -225,16 +216,7 @@ async def send_meeting_agenda(upcoming_summaries: list[str], lang: str = "ko") -
     )
 
     try:
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", "")).messages.create(
-                model=_MODEL,
-                max_tokens=512,
-                messages=[{"role": "user", "content": prompt}],
-            ),
-        )
-        text = response.content[0].text
+        text = await llm.generate_text(prompt=prompt, max_tokens=512)
     except Exception as exc:
         logger.warning("[Digest] Agenda generation failed: %s", exc)
         return

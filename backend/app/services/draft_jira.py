@@ -1,24 +1,22 @@
 """
 Jira Draft Generator — decide create vs comment, generate issue/comment draft.
 
-Uses Claude to decide whether to create a new Jira issue or add a comment to
+Uses the configured LLM to decide whether to create a new Jira issue or add a comment to
 an existing matched issue, then generates the full draft text.
 """
 import json
 import logging
-import os
 from pathlib import Path
 
 import aiofiles
-import anthropic
 
 from app.models.analysis import OrchestratorOutput
 from app.models.drafts import JiraDraftResult, JiraIssueDraft
 from app.models.retrieval import RetrievalContext
 from app.models.summary import MeetingSummary
+from app.services import llm
 
 logger = logging.getLogger(__name__)
-_MODEL = "claude-sonnet-4-6"
 
 _TOOL = {
     "name": "generate_jira_drafts",
@@ -54,10 +52,6 @@ async def generate_jira_drafts(
     analysis: OrchestratorOutput,
     context: RetrievalContext,
 ) -> JiraDraftResult:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set")
-
     jira_items = [i for i in context.items if i.source == "jira"]
     existing_summary = "\n".join(
         f"- [{i.id}] {i.title} ({i.url})" for i in jira_items
@@ -88,21 +82,16 @@ async def generate_jira_drafts(
 - description은 Jira wiki markup 형식으로 작성하세요.
 - 한국어로 작성하세요."""
 
-    client = anthropic.AsyncAnthropic(api_key=api_key)
-    response = await client.messages.create(
-        model=_MODEL,
+    raw = await llm.generate_structured(
+        prompt=prompt,
+        name=_TOOL["name"],
+        description=_TOOL["description"],
+        schema=_TOOL["input_schema"],
         max_tokens=2048,
-        tools=[_TOOL],
-        tool_choice={"type": "tool", "name": "generate_jira_drafts"},
-        messages=[{"role": "user", "content": prompt}],
     )
 
-    tool_block = next((b for b in response.content if b.type == "tool_use"), None)
-    if tool_block is None:
-        raise RuntimeError("Claude did not return Jira drafts")
-
     drafts = [
-        JiraIssueDraft(**d) for d in tool_block.input.get("drafts", [])
+        JiraIssueDraft(**d) for d in raw.get("drafts", [])
     ]
     return JiraDraftResult(meeting_id=summary.meeting_id, drafts=drafts)
 

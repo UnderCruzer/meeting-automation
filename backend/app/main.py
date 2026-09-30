@@ -18,6 +18,7 @@ from app.routers.review import router as review_router
 from app.routers.upload import router as upload_router
 from app.storage.local import LocalStorage
 from app.services.write_queue import start_worker
+from app.services import llm
 
 load_dotenv()
 
@@ -61,17 +62,19 @@ async def health() -> dict:
     storage_dir = os.getenv("STORAGE_DIR", "./data/recordings")
     storage_ok = os.path.isdir(storage_dir)
 
+    llm_key = llm.api_key_env()
     env_status = {
-        "ANTHROPIC_API_KEY": bool(os.getenv("ANTHROPIC_API_KEY")),
+        llm_key: bool(os.getenv(llm_key)),
         "SLACK_BOT_TOKEN": bool(os.getenv("SLACK_BOT_TOKEN")),
         "OPENAI_API_KEY": bool(os.getenv("OPENAI_API_KEY")),
     }
 
-    healthy = storage_ok and env_status["ANTHROPIC_API_KEY"] and (os.getenv("WORKSPACE_MODE") == "standalone" or env_status["SLACK_BOT_TOKEN"])
+    healthy = storage_ok and env_status[llm_key] and (os.getenv("WORKSPACE_MODE") == "standalone" or env_status["SLACK_BOT_TOKEN"])
 
     return {
         "status": "ok" if healthy else "degraded",
         "storage": {"path": storage_dir, "accessible": storage_ok},
         "env": env_status,
         "stt_backend": os.getenv("STT_BACKEND", "whisper-api"),
+        "llm_provider": llm.provider(),
     }

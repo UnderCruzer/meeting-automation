@@ -4,7 +4,8 @@ Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 
 
 ### 실행
 
-1. `backend/.env`에 `ANTHROPIC_API_KEY`와 전사용 `GROQ_API_KEY` 또는 `OPENAI_API_KEY`를 설정합니다. 현재 분석은 Claude를 사용합니다. 실제 업로드 시 사용 중인 공급자 요금이 발생할 수 있습니다.
+1. `backend/.env`에 분석용 `GEMINI_API_KEY`와 전사용 `GROQ_API_KEY` 또는 `OPENAI_API_KEY`를 설정합니다. Claude를 쓰려면 `LLM_PROVIDER=anthropic`과 `ANTHROPIC_API_KEY`를 설정합니다. 실제 업로드 시 사용 중인 공급자 요금이 발생할 수 있습니다.
+   - Gemini **무료 등급은 입력 내용이 Google 제품 개선에 사용될 수 있습니다.** 실제 회의 자료는 결제를 연결한 유료 등급 키를 사용하세요. PII는 마스킹 후 전송되지만 회의 내용 자체는 전송됩니다.
 2. 루트 `.env`에 서로 다른 임의의 긴 값으로 `BACKEND_API_KEY`와 `WORKSPACE_PASSWORD`를 설정합니다. 비밀번호는 ASCII 문자를 사용합니다.
 3. `docker compose -f compose.standalone.yml up --build -d`를 실행합니다.
 4. `http://localhost:3001`에 접속합니다. 사용자 이름은 `workspace`, 비밀번호는 설정한 값입니다.
@@ -41,7 +42,7 @@ Docker를 지원하는 서버에서 동일한 구성으로 실행하고, 3001 �
 
 ```
 캘린더 감지 → Slack DM → 사용자 승인 → 브라우저 녹음
-    → 오디오 업로드 → STT → PII 마스킹 → Claude 분석
+    → 오디오 업로드 → STT → PII 마스킹 → LLM 분석(Gemini/Claude)
     → 인용 요약 + 품질 검증 → 컨텍스트 검색
     → 초안 생성(Jira/Confluence/Slack) → Slack 검토 메시지
     → 인간 승인 게이트 → Write Queue → 실제 배포
@@ -70,7 +71,8 @@ cp .env.example recording-page/.env.local
 ```
 
 필수 항목:
-- `ANTHROPIC_API_KEY` — Claude API 키
+- `GEMINI_API_KEY` — Gemini API 키 (기본 분석 모델 `GEMINI_MODEL`, 기본값 `gemini-3.8-flash`)
+- `ANTHROPIC_API_KEY` — `LLM_PROVIDER=anthropic`일 때 Claude API 키
 - `OPENAI_API_KEY` — Whisper STT (또는 `STT_BACKEND=local`로 로컬 Whisper 사용)
 - `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` — Slack Bot Socket Mode
 - `JIRA_*` / `CONFLUENCE_*` — Atlassian API 키 (초안 배포 필요 시)
@@ -124,9 +126,9 @@ npm start
 
 ## 핵심 설계 결정
 
-### AI 분석 (`backend/app/services/orchestrator.py`)
-- Claude `claude-sonnet-4-6` + `tool_use` 강제 구조화 출력
-- PII 마스킹(`guard.py`) 후 Claude API 호출 — 원본 텍스트 외부 미노출
+### AI 분석 (`backend/app/services/orchestrator.py`, `llm.py`)
+- 공급자 선택: Gemini(`generateContent` + `responseSchema` JSON 출력) 또는 Claude(`tool_use` 강제 구조화 출력)
+- PII 마스킹(`guard.py`) 후 LLM API 호출 — 원본 텍스트 외부 미노출
 - `masked_text if masked_text is not None else transcript.full_text` — 빈 문자열 falsy 방지
 
 ### 파일 저장 패턴
@@ -163,7 +165,7 @@ data/recordings/
 | 그룹 | 변수 |
 |------|------|
 | STT | `STT_BACKEND`, `OPENAI_API_KEY`, `WHISPER_LOCAL_MODEL` |
-| AI | `ANTHROPIC_API_KEY` |
+| AI | `LLM_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `ANTHROPIC_API_KEY` |
 | Jira | `JIRA_BASE_URL`, `JIRA_PROJECT_KEY`, `JIRA_EMAIL`, `JIRA_API_TOKEN` |
 | Confluence | `CONFLUENCE_BASE_URL`, `CONFLUENCE_SPACE_KEY`, `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN` |
 | Slack | `SLACK_BOT_TOKEN`, `SLACK_REVIEW_CHANNEL`, `SLACK_BRIEF_CHANNEL` |
