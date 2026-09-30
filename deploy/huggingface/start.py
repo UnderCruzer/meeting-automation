@@ -9,7 +9,10 @@ import urllib.request
 
 
 def main():
-    for name in ("BACKEND_API_KEY", "WORKSPACE_PASSWORD", "ANTHROPIC_API_KEY"):
+    provider = os.environ.get("LLM_PROVIDER", "").lower() or (
+        "gemini" if os.environ.get("GEMINI_API_KEY") else "anthropic")
+    llm_key = "GEMINI_API_KEY" if provider == "gemini" else "ANTHROPIC_API_KEY"
+    for name in ("BACKEND_API_KEY", "WORKSPACE_PASSWORD", llm_key):
         if not os.environ.get(name):
             raise RuntimeError(f"Missing required Space secret: {name}")
     stopped = threading.Event()
@@ -38,7 +41,7 @@ def main():
                 raise RuntimeError("Backend startup timed out")
             stopped.wait(1)
         web_env = {key: value for key, value in os.environ.items()
-                   if key not in ("ANTHROPIC_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY")}
+                   if key not in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY")}
         web_env.update(PORT="7860", HOSTNAME="0.0.0.0")
         children.append(subprocess.Popen(["node", "server.js"], cwd="/app/frontend", env=web_env))
         while not stopped.wait(1):
