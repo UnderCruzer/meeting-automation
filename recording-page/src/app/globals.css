@@ -313,3 +313,6 @@ a:hover { text-decoration: underline; }
   .card-pad { padding: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.preview { white-space: pre-wrap; margin: 0; padding: 16px; border-radius: var(--radius); background: var(--surface-2); font: inherit; font-size: 13.5px; line-height: 1.7; }

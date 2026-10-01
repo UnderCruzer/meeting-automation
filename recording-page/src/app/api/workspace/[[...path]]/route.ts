@@ -13,14 +13,16 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path?: 
   if (!(path.length === 1 && path[0] === "jobs" && req.method === "GET") &&
       !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && ["decision", "publish", "retry"].includes(path[2]) && req.method === "POST") &&
       !(path.length === 2 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && req.method === "DELETE") &&
-      !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "action-items" && req.method === "PUT")) {
+      !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "action-items" && req.method === "PUT") &&
+      !(path.length === 4 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "action-items" && /^\d{1,2}$/.test(path[3]) && req.method === "PATCH") &&
+      !(path.length === 1 && path[0] === "briefing" && (req.method === "GET" || req.method === "POST"))) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   }
   try {
-    const res = await fetch(backendUrl(`/workspace/${path.join("/")}`), {
+    const res = await fetch(backendUrl(`/workspace/${path.join("/")}${req.nextUrl.search}`), {
       method: req.method, cache: "no-store",
       headers: backendHeaders(readSessionToken(req.headers), { "Content-Type": "application/json", "X-Client-IP": clientIp(req.headers) }),
-      body: req.method === "POST" || req.method === "PUT" ? await req.text() : undefined,
+      body: ["POST", "PUT", "PATCH"].includes(req.method) ? await req.text() : undefined,
     });
     return new NextResponse(await res.text(), { status: res.status, headers: { "Content-Type": "application/json" } });
   } catch {
@@ -31,3 +33,4 @@ export const GET = forward;
 export const POST = forward;
 export const DELETE = forward;
 export const PUT = forward;
+export const PATCH = forward;

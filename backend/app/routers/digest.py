@@ -1,22 +1,20 @@
 """
-Digest & Brief HTTP endpoints — Issue #20
+Digest & Brief HTTP endpoints — Issue #20, rebuilt in #83
 
-POST /digest/morning   — Morning Brief 즉시 트리거 (cron 또는 수동)
-POST /digest/daily     — Daily Digest 즉시 트리거
-POST /digest/weekly    — Weekly Digest 즉시 트리거
+POST /digest/morning   — Morning Brief now (approved meetings, due tasks)
+POST /digest/daily     — same as morning (yesterday's approved meetings are part of it)
+POST /digest/weekly    — Weekly Digest now
 POST /digest/agenda    — 어젠다 후보 생성
+
+Scheduled delivery runs inside the backend (services/briefing.py); these are for manual/cron use.
 """
 import logging
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Request
 from pydantic import BaseModel
 
-from app.services.digest import (
-    send_daily_digest,
-    send_meeting_agenda,
-    send_morning_brief,
-    send_weekly_digest,
-)
+from app.services.briefing import send_briefing
+from app.services.digest import send_meeting_agenda
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/digest")
@@ -27,22 +25,25 @@ class AgendaRequest(BaseModel):
     lang: str = "ko"
 
 
+def _trigger(kind: str, request: Request, background_tasks: BackgroundTasks) -> dict:
+    state = request.app.state
+    background_tasks.add_task(send_briefing, kind, state.workspace, state.audit, state.storage)
+    return {"triggered": kind}
+
+
 @router.post("/morning")
-async def trigger_morning_brief(background_tasks: BackgroundTasks, lang: str = "ko"):
-    background_tasks.add_task(send_morning_brief, lang)
-    return {"triggered": "morning_brief", "lang": lang}
+async def trigger_morning_brief(request: Request, background_tasks: BackgroundTasks):
+    return _trigger("morning", request, background_tasks)
 
 
 @router.post("/daily")
-async def trigger_daily_digest(background_tasks: BackgroundTasks, lang: str = "ko"):
-    background_tasks.add_task(send_daily_digest, lang)
-    return {"triggered": "daily_digest", "lang": lang}
+async def trigger_daily_digest(request: Request, background_tasks: BackgroundTasks):
+    return _trigger("morning", request, background_tasks)
 
 
 @router.post("/weekly")
-async def trigger_weekly_digest(background_tasks: BackgroundTasks, lang: str = "ko"):
-    background_tasks.add_task(send_weekly_digest, lang)
-    return {"triggered": "weekly_digest", "lang": lang}
+async def trigger_weekly_digest(request: Request, background_tasks: BackgroundTasks):
+    return _trigger("weekly", request, background_tasks)
 
 
 @router.post("/agenda")

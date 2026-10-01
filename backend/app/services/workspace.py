@@ -1,8 +1,11 @@
 """단일 팀 회의 검토 상태와 승인 결과를 SQLite에 보관한다."""
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import json
 import sqlite3
 from pathlib import Path
+
+from app.services.due_dates import local_date, parse_due
 
 class Workspace:
     def __init__(self, base_dir):
@@ -10,6 +13,8 @@ class Workspace:
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, summary TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
             # Added with accounts: who uploaded and who decided (older databases are migrated in place).
+            # One row per briefing per day — makes the daily schedule idempotent (#83).
+            db.execute("CREATE TABLE IF NOT EXISTS briefing_runs (kind TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (kind, day))")
             existing = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
             for column in ("uploaded_by", "decided_by", "decided_at",
                            # Slack publishing (#73): none|queued|scheduled|sent|failed
@@ -75,7 +80,23 @@ class Workspace:
     def _public(row):
         job = {**dict(row), "summary": json.loads(row["summary"]) if row["summary"] else None}
         job["can_retry"] = job.pop("retry_payload", None) is not None and job["status"] == "failed"
+        # Resolved due date (free text → calendar date, relative to the meeting day) for UI and briefings.
+        meeting_day = local_date(job.get("created_at"))
+        for item in (job["summary"] or {}).get("action_items", []):
+            due = parse_due(item.get("due_date"), meeting_day) if meeting_day else None
+            item["due"] = due.isoformat() if due else None
         return job
+
+    def list_all(self, status="approved"):
+        """Every job with `status` (no paging) — for briefings."""
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM jobs WHERE status=? ORDER BY created_at", (status,)).fetchall()
+        return [self._public(row) for row in rows]
+
+    def claim_briefing(self, kind, day):
+        """True only for the first caller per (kind, day)."""
+        with self.connect() as db:
+            return db.execute("INSERT OR IGNORE INTO briefing_runs VALUES (?, ?)", (kind, day)).rowcount == 1
 
     def decide(self, job_id, status, decided_by=None):
         if status not in ("approved", "rejected"):
@@ -86,6 +107,21 @@ class Workspace:
                 (status, decided_by, job_id),
             ).rowcount
         return bool(changed)
+
+    def set_item_done(self, job_id, index, done, by=None):
+        """Mark one action item of an approved meeting done/open. Returns False if not applicable."""
+        with self.connect() as db:
+            row = db.execute("SELECT summary FROM jobs WHERE id=? AND status='approved'", (job_id,)).fetchone()
+            if row is None or not row["summary"]:
+                return False
+            summary = json.loads(row["summary"])
+            items = summary.get("action_items", [])
+            if not 0 <= index < len(items):
+                return False
+            items[index].update(done=bool(done), done_by=by if done else None,
+                                done_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if done else None)
+            db.execute("UPDATE jobs SET summary=? WHERE id=?", (json.dumps(summary, ensure_ascii=False), job_id))
+        return True
 
     def update_action_items(self, job_id, items):
         """Replace the action items of a job still under review. Returns False otherwise."""

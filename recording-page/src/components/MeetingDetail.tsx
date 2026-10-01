@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { Job } from "@/lib/workspace";
-import { FAILURE_REASONS, SLACK_HINTS, api, displayActor, formatWhen, jsonInit } from "@/lib/workspace";
+import { FAILURE_REASONS, SLACK_HINTS, api, displayActor, dueState, formatWhen, jsonInit } from "@/lib/workspace";
 import StatusBadge, { PriorityBadge } from "@/components/StatusBadge";
 import ActionItemsEditor from "@/components/ActionItemsEditor";
 import { useToast } from "@/components/Toast";
@@ -78,11 +78,18 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
         {job.status === "review"
           ? <ActionItemsEditor key={job.id} jobId={job.id} items={summary.action_items} onSaved={onChanged} />
           : summary.action_items.length
-            ? <div className="items">{summary.action_items.map((a, i) => <div key={i} className="item">
-                <div className="row"><strong style={{ flex: 1 }}>{a.description}</strong><PriorityBadge priority={a.priority} /></div>
-                <div className="meta"><span>담당 {a.assignee || "미정"}</span><span>기한 {a.due_date || "미정"}</span></div>
+            ? <div className="items">{summary.action_items.map((a, i) => { const due = dueState(a.due, a.done); return <div key={i} className="item" style={a.done ? { opacity: 0.65 } : undefined}>
+                <div className="row">
+                  {job.status === "approved" && <label className="check"><input type="checkbox" checked={!!a.done} disabled={busy}
+                    aria-label={`${a.description} ${a.done ? "완료 취소" : "완료"}`}
+                    onChange={() => run(() => api(`/api/workspace/jobs/${job.id}/action-items/${i}`, jsonInit("PATCH", { done: !a.done }), "상태를 바꾸지 못했습니다."),
+                      a.done ? "다시 진행 중으로 바꿨습니다." : "완료했습니다.")} /></label>}
+                  <strong style={{ flex: 1, textDecoration: a.done ? "line-through" : undefined }}>{a.description}</strong>
+                  {due && <span className={`badge badge-plain ${due.tone}`}>{due.label}</span>}<PriorityBadge priority={a.priority} /></div>
+                <div className="meta"><span>담당 {a.assignee || "미정"}</span><span>기한 {a.due_date || "미정"}</span>
+                  {a.done && <span>완료 {displayActor(a.done_by)} · {formatWhen(a.done_at)}</span>}</div>
                 <blockquote className={`quote${a.citation_text ? "" : " quote-missing"}`}>{a.citation_text || "일치하는 원문을 찾지 못했습니다."}</blockquote>
-              </div>)}</div>
+              </div>; })}</div>
             : <p className="subtle">추출된 할 일이 없습니다.</p>}
         <p className="subtle">근거는 키워드로 연결한 후보이며, 개인정보 패턴은 가려져 표시됩니다.</p>
       </section>

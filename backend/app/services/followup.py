@@ -1,52 +1,22 @@
 """
 Follow-up Automation — Issue #21
 
-- Action Item 기한 리마인더 (D-1, D-day)
-- Jira 상태 변경 webhook 처리
-- 미완료 항목 이해관계자 Slack 알림
-- 다음 회의 Agenda 후보 자동 생성 (digest.send_meeting_agenda 위임)
+- Jira 상태 변경 webhook 처리 → 이해관계자 Slack 알림
+
+Due/overdue reminders for action items moved to services/briefing.py (#83): approved meetings
+only, with completion tracking and free-text due dates.
 """
 from __future__ import annotations
 
 import logging
 import os
-from base64 import b64encode
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
-import json
 
 import httpx
 
-from app.services.name_guard import load_name_map, unmask_text
-
 logger = logging.getLogger(__name__)
-
-_STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./data/recordings"))
 
 
 # ── Action Item 리마인더 ───────────────────────────────────────────────────────
-
-def _load_action_items() -> list[dict]:
-    """analysis JSON에서 due_date가 있는 action_item 수집."""
-    items = []
-    if not _STORAGE_DIR.exists():
-        return items
-    for path in _STORAGE_DIR.rglob("*.analysis.json"):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            names = load_name_map(path)  # analysis is stored pseudonymised
-            for item in data.get("action_items", []):
-                # action_item이 dict이면 due_date 필드 사용, str이면 스킵
-                if isinstance(item, dict) and item.get("due_date"):
-                    for key in ("description", "assignee"):
-                        if isinstance(item.get(key), str):
-                            item[key] = unmask_text(item[key], names)
-                    item["_source"] = str(path)
-                    items.append(item)
-        except Exception as exc:
-            logger.warning("[Followup] Failed to load %s: %s", path, exc)
-    return items
-
 
 async def _notify_slack(user_id: str, text: str) -> None:
     token = os.getenv("SLACK_BOT_TOKEN", "")
@@ -64,42 +34,6 @@ async def _notify_slack(user_id: str, text: str) -> None:
                 raise RuntimeError(data.get("error"))
     except Exception as exc:
         logger.warning("[Followup] Slack notify failed for %s: %s", user_id, exc)
-
-
-async def send_action_item_reminders() -> int:
-    """
-    D-1 / D-day 리마인더를 담당자 Slack DM으로 발송.
-    Returns: 발송된 리마인더 수
-    """
-    today = date.today()
-    tomorrow = today + timedelta(days=1)
-    sent = 0
-
-    for item in _load_action_items():
-        try:
-            due = date.fromisoformat(str(item["due_date"]))
-        except (ValueError, TypeError):
-            continue
-
-        if due not in (today, tomorrow):
-            continue
-
-        label = "🔴 *오늘 마감*" if due == today else "🟡 *내일 마감*"
-        assignee_id = item.get("assignee_slack_id") or item.get("assignee", "")
-        if not assignee_id:
-            continue
-
-        text = (
-            f"{label} — 액션 아이템 리마인더\n\n"
-            f"*내용:* {item.get('description', item.get('text', ''))}\n"
-            f"*마감일:* {due.isoformat()}\n"
-            f"_해당 항목을 Jira에서 완료 처리해주세요._"
-        )
-        await _notify_slack(assignee_id, text)
-        sent += 1
-
-    logger.info("[Followup] Action item reminders sent: %d", sent)
-    return sent
 
 
 # ── Jira webhook 처리 ─────────────────────────────────────────────────────────
@@ -154,37 +88,3 @@ async def handle_jira_webhook(payload: dict) -> dict:
 
     logger.info("[Followup] Jira webhook: %s → %s, notified %d stakeholders", issue_key, new_status, notified)
     return {"notified": notified}
-
-
-# ── 미완료 항목 알림 ──────────────────────────────────────────────────────────
-
-async def notify_overdue_items() -> int:
-    """기한 초과 Action Item을 담당자에게 알림. Returns: 발송 수"""
-    today = date.today()
-    sent = 0
-
-    for item in _load_action_items():
-        try:
-            due = date.fromisoformat(str(item["due_date"]))
-        except (ValueError, TypeError):
-            continue
-
-        if due >= today:
-            continue   # 아직 기한 내
-
-        assignee_id = item.get("assignee_slack_id") or item.get("assignee", "")
-        if not assignee_id:
-            continue
-
-        overdue_days = (today - due).days
-        text = (
-            f"⚠️ *기한 초과 — {overdue_days}일 경과*\n\n"
-            f"*내용:* {item.get('description', item.get('text', ''))}\n"
-            f"*원래 마감일:* {due.isoformat()}\n"
-            f"_빠른 처리 또는 기한 재조정을 요청드립니다._"
-        )
-        await _notify_slack(assignee_id, text)
-        sent += 1
-
-    logger.info("[Followup] Overdue item notifications sent: %d", sent)
-    return sent

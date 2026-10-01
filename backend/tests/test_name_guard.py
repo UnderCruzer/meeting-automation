@@ -101,4 +101,4 @@ def test_pipeline_sends_tokens_to_llm_and_shows_names(tmp_path, monkeypatch):
     assert summary["summary_ko"] == "김민수 보고서 검토"
     assert summary["action_items"][0]["assignee"] == "김민수"
     assert "PERSON" not in str(summary)
-    assert (tmp_path / "m" / f"{job}.names.json").exists()
+    assert not (tmp_path / "m" / f"{job}.names.json").exists()  # names stay only in the DB summary/retry payload

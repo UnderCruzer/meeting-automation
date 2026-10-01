@@ -36,8 +36,10 @@ def test_edit_owner_due_priority_and_add_item_keeps_evidence(app):
     assert res.status_code == 200
     items = app.state.workspace.get(JOB)["summary"]["action_items"]
     assert (items[0]["assignee"], items[0]["priority"], items[0]["citation_text"]) == ("김민수", "high", "보고서는 제가 쓸게요")
-    assert items[1] == {"description": "QA 일정 공유", "assignee": "박지은", "due_date": "", "priority": "medium",
-                        "citation_start": 0.0, "citation_end": 0.0, "citation_text": ""}
+    assert {k: v for k, v in items[1].items() if k != "due"} == {
+        "description": "QA 일정 공유", "assignee": "박지은", "due_date": "", "priority": "medium",
+        "citation_start": 0.0, "citation_end": 0.0, "citation_text": ""}
+    assert items[0]["due"] is not None  # "10/10" resolved against the meeting date
     assert app.state.audit.recent()[0]["action"] == "edit"
 
 
