@@ -16,5 +16,5 @@ export default function StatusBadge({ status }: { status: string }) {
 const PRIORITY: Record<string, string> = { high: "높음", medium: "보통", low: "낮음" };
 
 export function PriorityBadge({ priority = "medium" }: { priority?: string }) {
-  return <span className={`badge badge-plain badge-${priority}`}>{PRIORITY[priority] ?? priority}</span>;
+  return <span className={`badge badge-${priority}`}>{PRIORITY[priority] ?? priority}</span>;
 }
