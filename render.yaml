@@ -15,6 +15,9 @@ services:
         value: gemini
       - key: GEMINI_MODEL
         value: gemini-3.8-flash
+      # 기본 모델이 혼잡(503)·한도(429)로 재시도 후에도 실패하면 순서대로 시도
+      - key: GEMINI_FALLBACK_MODELS
+        value: gemini-3.1-flash-lite
       # onrender.com은 Cloudflare 뒤에 있음 — Cloudflare가 매 요청 덮어쓰는 헤더라 위조 불가
       - key: CLIENT_IP_HEADER
         value: cf-connecting-ip

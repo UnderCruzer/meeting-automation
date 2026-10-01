@@ -133,3 +133,58 @@ def test_orchestrator_sends_only_masked_text_to_gemini(monkeypatch):
     assert "private@example.com" not in sent
     assert "[EMAIL]" in sent
     assert out.summary_ko == "요약"
+
+
+def _sequence(monkeypatch, responses):
+    """Mock Gemini returning the given (status, json) pairs in order; record calls and sleeps."""
+    calls, sleeps = [], []
+    queue = list(responses)
+
+    def handler(request):
+        calls.append(request)
+        status, payload, headers = queue.pop(0)
+        return httpx.Response(status, json=payload, headers=headers)
+
+    monkeypatch.setattr(llm.httpx, "AsyncClient",
+                        lambda **kw: _real_client(transport=httpx.MockTransport(handler), **kw))
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+    monkeypatch.setattr(llm.asyncio, "sleep", fake_sleep)
+    return calls, sleeps
+
+
+def test_gemini_retries_overload_then_succeeds(monkeypatch):
+    _gemini_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_MAX_ATTEMPTS", "3")
+    busy = (503, {"error": {"message": "overloaded"}}, {})
+    calls, sleeps = _sequence(monkeypatch, [busy, (429, {}, {"Retry-After": "7"}), (200, _candidate("ok"), {})])
+    assert asyncio.run(llm.generate_text(prompt="p", max_tokens=10)) == "ok"
+    assert len(calls) == 3 and sleeps[1] == 7.0
+
+
+def test_gemini_falls_back_to_next_model(monkeypatch):
+    _gemini_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_MAX_ATTEMPTS", "2")
+    monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "gemini-backup")
+    busy = (503, {}, {})
+    calls, _ = _sequence(monkeypatch, [busy, busy, (200, _candidate("from backup"), {})])
+    assert asyncio.run(llm.generate_text(prompt="p", max_tokens=10)) == "from backup"
+    assert "gemini-backup" in calls[2].url.path
+
+
+def test_gemini_gives_up_with_unavailable(monkeypatch):
+    _gemini_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_MAX_ATTEMPTS", "2")
+    monkeypatch.setenv("GEMINI_FALLBACK_MODELS", "")
+    _sequence(monkeypatch, [(503, {}, {}), (503, {}, {})])
+    with pytest.raises(llm.LLMUnavailable):
+        asyncio.run(llm.generate_text(prompt="p", max_tokens=10))
+
+
+def test_gemini_client_errors_are_not_retried(monkeypatch):
+    _gemini_env(monkeypatch)
+    calls, _ = _sequence(monkeypatch, [(400, {"error": {"message": "bad"}}, {})])
+    with pytest.raises(RuntimeError, match="400"):
+        asyncio.run(llm.generate_text(prompt="p", max_tokens=10))
+    assert len(calls) == 1

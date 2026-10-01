@@ -12,10 +12,11 @@ from app.models.meeting import MeetingMetadata, UploadResponse
 from app.middleware.rate_limit import client_ip
 from app.routers.auth import current_user
 from app.services.accounts import User
-from app.models.transcript import TranscriptSegment
+from app.models.transcript import TranscriptResult, TranscriptSegment
 from app.storage.local import AudioSizeError
 from app.services.workspace import Workspace
 from app.services.guard import mask_transcript_segments, save_guard_report
+from app.services.llm import LLMUnavailable
 from app.services.name_guard import pseudonymise_segments, save_name_map, unmask_model
 from app.services.orchestrator import analyse, save_analysis
 from app.services.retrieval import retrieve_context
@@ -71,8 +72,10 @@ async def _run_stt_and_guard(
     audio_path: Path, file_key: str, meeting_id: str, base_dir: Path,
     participants: list[str] | None = None,
 ) -> None:
+    """Stage 1 (transcribe + mask) then stage 2 (analyse). A stage-2 failure stays retryable."""
     workspace = await asyncio.to_thread(Workspace, base_dir)
     job_id = file_key.split("/")[-1][:-4]
+    stage = "stt"
     try:
         transcript = await transcribe(audio_path, meeting_id)
 
@@ -96,69 +99,108 @@ async def _run_stt_and_guard(
         # Persist guard report (masked text + match metadata)
         await save_guard_report(file_key, base_dir, all_matches, masked_full_text)
 
-        # AI analysis — pass masked text so PII never reaches Claude API
-        analysis = await analyse(transcript, masked_text=masked_full_text)
-        await save_analysis(analysis, file_key, base_dir)
+        if not masked_full_text.strip():
+            raise NoSpeechError(meeting_id)
 
-        # Enrich with citations + quality validation — citations quote the masked text.
-        # Names are restored only in the summary shown to signed-in users.
-        masked_summary = build_summary(analysis, masked_transcript)
-        summary = unmask_model(masked_summary, name_tokens)
-        await save_summary(summary, file_key, base_dir)
-
-        await asyncio.to_thread(workspace.finish, job_id, summary.model_dump())
-        if os.getenv("WORKSPACE_MODE") == "standalone":
-            return
-
-        # Bounded retrieval — fetch related Jira/Confluence/Slack context
-        context = await retrieve_context(analysis)
-
-        # Generate drafts — only for routing targets, skip if quality_ok is False
-        if summary.quality_ok:
-            if "jira" in analysis.routing:
-                # LLM call: send the pseudonymised summary, restore names in the drafts
-                jira_result = unmask_model(
-                    await generate_jira_drafts(masked_summary, analysis, context), name_tokens
-                )
-                await save_jira_drafts(jira_result, file_key, base_dir)
-
-            if "confluence" in analysis.routing:
-                conf_draft = generate_confluence_draft(summary)
-                await save_confluence_draft(conf_draft, file_key, base_dir)
-
-            if "slack" in analysis.routing:
-                slack_draft = generate_slack_draft(summary)
-                await save_slack_draft(slack_draft, file_key, base_dir)
-        else:
-            logger.warning("[Pipeline] %s — quality_ok=False, skipping draft generation", meeting_id)
-
-        # Send Slack review message (fire-and-forget, non-blocking)
-        job_id = file_key.split("/")[-1][:-4]  # fix: safe suffix strip, was .replace(".wav","")
-        review_req = SendReviewRequest(
-            job_id=job_id,
-            meeting_id=meeting_id,
-            file_key=file_key,
-            routing=analysis.routing if summary.quality_ok else [],
-            has_pii=len(all_matches) > 0,
-            summary_ko=summary.summary_ko,
-            quality_ok=summary.quality_ok,
-        )
-        await send_review_message(review_req)
-
-        logger.info(
-            "[Pipeline] %s — %d segments, %d PII masked, routing=%s, confidence=%.2f, "
-            "quality_ok=%s, retrieved=%d items from %s",
-            meeting_id, len(transcript.segments), len(all_matches),
-            analysis.routing, analysis.confidence,
-            summary.quality_ok, len(context.items), context.sources_searched,
-        )
-    except Exception:
-        await asyncio.to_thread(workspace.fail, job_id)
-        logger.exception("[STT+Guard] Failed for %s", meeting_id)
+        # Only masked + pseudonymised text is kept, so "다시 분석" needs no raw data or re-upload.
+        retry = {"file_key": file_key, "meeting_id": meeting_id, "pii_count": len(all_matches),
+                 "name_tokens": name_tokens, "transcript": masked_transcript.model_dump()}
+        await asyncio.to_thread(workspace.save_retry, job_id, retry)
+        stage = "analysis"
+        await _analyse_and_deliver(workspace, job_id, retry, base_dir)
+    except Exception as exc:
+        await asyncio.to_thread(workspace.fail, job_id, _error_code(stage, exc))
+        logger.exception("[Pipeline] %s failed for %s", stage, meeting_id)
     finally:
-        # Raw audio is no longer needed once processed (or failed — the user re-uploads).
+        # Raw audio is no longer needed once transcribed (or failed — the user re-uploads).
         if not _retain_raw():
             audio_path.unlink(missing_ok=True)
+
+
+async def retry_analysis(base_dir: Path, job_id: str, retry: dict) -> None:
+    """Re-run stage 2 from the stored masked transcript (no STT, no raw data)."""
+    workspace = await asyncio.to_thread(Workspace, base_dir)
+    try:
+        await _analyse_and_deliver(workspace, job_id, retry, base_dir)
+    except Exception as exc:
+        await asyncio.to_thread(workspace.fail, job_id, _error_code("analysis", exc))
+        logger.exception("[Pipeline] analysis retry failed for %s", retry.get("meeting_id"))
+
+
+class NoSpeechError(ValueError):
+    """Transcription produced no text."""
+
+
+def _error_code(stage: str, exc: Exception) -> str:
+    if isinstance(exc, NoSpeechError):
+        return "NO_SPEECH"
+    if stage == "stt":
+        return "STT_FAILED"
+    if isinstance(exc, LLMUnavailable):
+        return "LLM_BUSY"
+    return "ANALYSIS_FAILED"
+
+
+async def _analyse_and_deliver(workspace: Workspace, job_id: str, retry: dict, base_dir: Path) -> None:
+    file_key, meeting_id = retry["file_key"], retry["meeting_id"]
+    name_tokens: dict[str, str] = retry["name_tokens"]
+    masked_transcript = TranscriptResult.model_validate(retry["transcript"])
+
+    # AI analysis — only masked, pseudonymised text reaches the LLM
+    analysis = await analyse(masked_transcript, masked_text=masked_transcript.full_text)
+    await save_analysis(analysis, file_key, base_dir)
+
+    # Enrich with citations + quality validation — citations quote the masked text.
+    # Names are restored only in the summary shown to signed-in users.
+    masked_summary = build_summary(analysis, masked_transcript)
+    summary = unmask_model(masked_summary, name_tokens)
+    await save_summary(summary, file_key, base_dir)
+
+    await asyncio.to_thread(workspace.finish, job_id, summary.model_dump())
+    if os.getenv("WORKSPACE_MODE") == "standalone":
+        return
+
+    # Bounded retrieval — fetch related Jira/Confluence/Slack context
+    context = await retrieve_context(analysis)
+
+    # Generate drafts — only for routing targets, skip if quality_ok is False
+    if summary.quality_ok:
+        if "jira" in analysis.routing:
+            # LLM call: send the pseudonymised summary, restore names in the drafts
+            jira_result = unmask_model(
+                await generate_jira_drafts(masked_summary, analysis, context), name_tokens
+            )
+            await save_jira_drafts(jira_result, file_key, base_dir)
+
+        if "confluence" in analysis.routing:
+            conf_draft = generate_confluence_draft(summary)
+            await save_confluence_draft(conf_draft, file_key, base_dir)
+
+        if "slack" in analysis.routing:
+            slack_draft = generate_slack_draft(summary)
+            await save_slack_draft(slack_draft, file_key, base_dir)
+    else:
+        logger.warning("[Pipeline] %s — quality_ok=False, skipping draft generation", meeting_id)
+
+    # Send Slack review message (fire-and-forget, non-blocking)
+    review_req = SendReviewRequest(
+        job_id=job_id,
+        meeting_id=meeting_id,
+        file_key=file_key,
+        routing=analysis.routing if summary.quality_ok else [],
+        has_pii=retry["pii_count"] > 0,
+        summary_ko=summary.summary_ko,
+        quality_ok=summary.quality_ok,
+    )
+    await send_review_message(review_req)
+
+    logger.info(
+        "[Pipeline] %s — %d segments, %d PII masked, routing=%s, confidence=%.2f, "
+        "quality_ok=%s, retrieved=%d items from %s",
+        meeting_id, len(masked_transcript.segments), retry["pii_count"],
+        analysis.routing, analysis.confidence,
+        summary.quality_ok, len(context.items), context.sources_searched,
+    )
 
 
 def _retain_raw() -> bool:
