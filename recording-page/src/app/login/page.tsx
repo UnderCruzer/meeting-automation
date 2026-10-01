@@ -22,17 +22,24 @@ function LoginForm() {
     } catch (err) { setError(err instanceof Error ? err.message : "로그인에 실패했습니다."); }
     finally { setBusy(false); }
   }
-  return <form onSubmit={submit} style={{display: "grid", gap: 12, padding: 24, background: "#f0f4f8", borderRadius: 12}}>
-    <label>사용자 이름 <input name="username" autoComplete="username" required autoFocus /></label>
-    <label>비밀번호 <input name="password" type="password" autoComplete="current-password" required /></label>
-    <button disabled={busy}>{busy ? "확인 중…" : "로그인"}</button>
-    {error && <p role="alert" style={{color: "#a52020"}}>{error}</p>}
+  return <form onSubmit={submit} className="stack">
+    <label className="field"><span>사용자 이름</span><input className="input" name="username" autoComplete="username" required autoFocus /></label>
+    <label className="field"><span>비밀번호</span><input className="input" name="password" type="password" autoComplete="current-password" required /></label>
+    {error && <div className="alert alert-danger" role="alert"><div className="alert-body">{error}</div></div>}
+    <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? "확인 중…" : "로그인"}</button>
   </form>;
 }
 
 export default function LoginPage() {
-  return <main style={{maxWidth: 420, margin: "80px auto", padding: 24, fontFamily: "system-ui", color: "#182536"}}>
-    <h1>회의에서 실행까지</h1><p>계정이 없으면 관리자에게 요청하세요.</p>
-    <Suspense><LoginForm /></Suspense>
+  return <main className="center-page">
+    <div className="card auth-card">
+      <div className="stack" style={{ gap: 10 }}>
+        <span className="brand-mark" aria-hidden style={{ width: 40, height: 40, fontSize: 18 }}>◆</span>
+        <h1>회의에서 실행까지</h1>
+        <p className="muted">회의 녹음을 요약하고, 검토·승인한 할 일을 팀에 공유합니다.</p>
+      </div>
+      <Suspense><LoginForm /></Suspense>
+      <p className="subtle">계정이 없으면 관리자에게 요청하세요.</p>
+    </div>
   </main>;
 }
