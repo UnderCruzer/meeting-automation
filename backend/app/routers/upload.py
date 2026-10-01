@@ -155,7 +155,7 @@ async def _analyse_and_deliver(workspace: Workspace, job_id: str, retry: dict, b
     summary = unmask_model(masked_summary, name_tokens)
     await save_summary(summary, file_key, base_dir)
 
-    await asyncio.to_thread(workspace.finish, job_id, summary.model_dump())
+    await asyncio.to_thread(workspace.finish, job_id, summary.model_dump(), analysis.confidence)
     if os.getenv("WORKSPACE_MODE") == "standalone":
         return
 

@@ -15,14 +15,21 @@ class Workspace:
             # Added with accounts: who uploaded and who decided (older databases are migrated in place).
             # One row per briefing per day — makes the daily schedule idempotent (#83).
             db.execute("CREATE TABLE IF NOT EXISTS briefing_runs (kind TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (kind, day))")
+            # Workflow 22: one feedback per user per meeting; removed with the meeting.
+            db.execute("CREATE TABLE IF NOT EXISTS feedback (job_id TEXT NOT NULL, username TEXT NOT NULL,"
+                       " rating TEXT NOT NULL, categories TEXT NOT NULL DEFAULT '[]', note TEXT NOT NULL DEFAULT '',"
+                       " created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (job_id, username))")
             existing = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
             for column in ("uploaded_by", "decided_by", "decided_at",
                            # Slack publishing (#73): none|queued|scheduled|sent|failed
                            "publish_status", "publish_at", "published_at", "publish_channel", "publish_error",
                            # Failure reason code and the masked transcript kept for "다시 분석" (#75)
-                           "error_code", "retry_payload"):
+                           "error_code", "retry_payload",
+                           # Quality metrics (#84)
+                           "finished_at", "confidence", "quality_ok"):
                 if column not in existing:
-                    db.execute(f"ALTER TABLE jobs ADD COLUMN {column} TEXT")
+                    kind = {"confidence": "REAL", "quality_ok": "INTEGER"}.get(column, "TEXT")
+                    db.execute(f"ALTER TABLE jobs ADD COLUMN {column} {kind}")
 
     @contextmanager
     def connect(self):
@@ -38,14 +45,18 @@ class Workspace:
         with self.connect() as db:
             db.execute("INSERT INTO jobs(id,title,status,uploaded_by) VALUES (?,?,'processing',?)", (job_id,title,uploaded_by))
 
-    def finish(self, job_id, summary):
+    def finish(self, job_id, summary, confidence=None):
+        quality_ok = summary.get("quality_ok") if isinstance(summary, dict) else None
         with self.connect() as db:
-            db.execute("UPDATE jobs SET status='review',summary=?,error_code=NULL,retry_payload=NULL"
-                       " WHERE id=? AND status='processing'", (json.dumps(summary,ensure_ascii=False),job_id))
+            db.execute("UPDATE jobs SET status='review',summary=?,error_code=NULL,retry_payload=NULL,"
+                       " finished_at=CURRENT_TIMESTAMP, confidence=?, quality_ok=? WHERE id=? AND status='processing'",
+                       (json.dumps(summary,ensure_ascii=False), confidence,
+                        None if quality_ok is None else int(bool(quality_ok)), job_id))
 
     def fail(self, job_id, code="FAILED"):
         with self.connect() as db:
-            db.execute("UPDATE jobs SET status='failed', error_code=? WHERE id=? AND status='processing'", (code, job_id))
+            db.execute("UPDATE jobs SET status='failed', error_code=?, finished_at=CURRENT_TIMESTAMP"
+                       " WHERE id=? AND status='processing'", (code, job_id))
 
     def save_retry(self, job_id, payload):
         """Keep the masked transcript so analysis can be retried without re-upload."""
@@ -92,6 +103,31 @@ class Workspace:
         with self.connect() as db:
             rows = db.execute("SELECT * FROM jobs WHERE status=? ORDER BY created_at", (status,)).fetchall()
         return [self._public(row) for row in rows]
+
+    def save_feedback(self, job_id, username, rating, categories, note):
+        """Upsert one user's feedback on a finished meeting. Returns False if the meeting isn't reviewable."""
+        with self.connect() as db:
+            row = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None or row["status"] not in ("review", "approved", "rejected"):
+                return False
+            db.execute("INSERT INTO feedback(job_id,username,rating,categories,note) VALUES (?,?,?,?,?)"
+                       " ON CONFLICT(job_id, username) DO UPDATE SET rating=excluded.rating,"
+                       " categories=excluded.categories, note=excluded.note, created_at=CURRENT_TIMESTAMP",
+                       (job_id, username, rating, json.dumps(categories, ensure_ascii=False), note))
+        return True
+
+    def feedback_for(self, job_id):
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM feedback WHERE job_id=? ORDER BY created_at", (job_id,)).fetchall()
+        return [{**dict(r), "categories": json.loads(r["categories"])} for r in rows]
+
+    def metrics_rows(self, since_utc):
+        """Raw rows for quality metrics: jobs created since `since_utc` and feedback in the window."""
+        with self.connect() as db:
+            jobs = db.execute("SELECT * FROM jobs WHERE created_at >= ?", (since_utc,)).fetchall()
+            feedback = db.execute("SELECT * FROM feedback WHERE created_at >= ?", (since_utc,)).fetchall()
+        return ([self._public(r) for r in jobs],
+                [{**dict(r), "categories": json.loads(r["categories"])} for r in feedback])
 
     def claim_briefing(self, kind, day):
         """True only for the first caller per (kind, day)."""
@@ -167,6 +203,7 @@ class Workspace:
             if row["status"] == "processing":
                 raise JobBusyError(job_id)
             db.execute("DELETE FROM jobs WHERE id=? AND status!='processing'", (job_id,))
+            db.execute("DELETE FROM feedback WHERE job_id=?", (job_id,))
         return True
 
     def expired(self, days):
