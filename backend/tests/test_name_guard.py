@@ -55,3 +55,50 @@ def test_unmask_restores_bracketed_and_bare_tokens():
     restored = unmask_model(summary, tokens)
     assert restored.summary_ko == "김민수 발표"
     assert restored.action_items[0].assignee == "박지은"
+
+
+def test_pipeline_sends_tokens_to_llm_and_shows_names(tmp_path, monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from app.models.analysis import OrchestratorOutput
+    from app.models.transcript import TranscriptResult, TranscriptSegment
+    from app.routers import upload
+    from app.services.workspace import Workspace
+
+    job = "0123456789abcdef0123456789abcdef"
+    text = "김민수 팀장이 보고서 검토, Sarah 는 일정 확인"
+    transcript = TranscriptResult(meetingId="m", language="ko", duration=60, backend="test", full_text=text,
+                                  segments=[TranscriptSegment(start=0, end=60, text=text)])
+
+    async def fake_analyse(t, masked_text):
+        # The LLM only ever sees tokens and answers with them.
+        import re
+        assert "김민수" not in masked_text and "Sarah" not in masked_text
+        lead = re.search(r"\[PERSON_(\d+)\] 팀장", masked_text).group(1)
+        return OrchestratorOutput(meeting_id="m", topics=[], decisions=[],
+                                  action_items=[{"description": "보고서 검토", "assignee": f"PERSON_{lead}"}],
+                                  participants_mentioned=[], summary_ko=f"[PERSON_{lead}] 보고서 검토",
+                                  summary_en="", confidence=.9, routing=[])
+
+    monkeypatch.setenv("WORKSPACE_MODE", "standalone")
+    monkeypatch.delenv("RETAIN_RAW_RECORDINGS", raising=False)
+    monkeypatch.setattr(upload, "transcribe", AsyncMock(return_value=transcript))
+    analyse = AsyncMock(side_effect=fake_analyse)
+    monkeypatch.setattr(upload, "analyse", analyse)
+    for name in ("save_guard_report", "save_analysis", "save_summary"):
+        monkeypatch.setattr(upload, name, AsyncMock())
+    store = Workspace(tmp_path)
+    store.create(job, "회의")
+    (tmp_path / "m").mkdir()
+    audio = tmp_path / "m" / f"{job}.wav"
+    audio.write_bytes(b"RIFF")
+
+    asyncio.run(upload._run_stt_and_guard(audio, f"m/{job}.wav", "m", tmp_path, ["Sarah"]))
+
+    analyse.assert_awaited_once()
+    summary = store.list()[0]["summary"]
+    assert summary["summary_ko"] == "김민수 보고서 검토"
+    assert summary["action_items"][0]["assignee"] == "김민수"
+    assert "PERSON" not in str(summary)
+    assert (tmp_path / "m" / f"{job}.names.json").exists()
