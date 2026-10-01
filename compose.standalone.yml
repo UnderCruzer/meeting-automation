@@ -7,6 +7,9 @@ services:
       WORKSPACE_MODE: standalone
       STORAGE_DIR: /app/data/recordings
       BACKEND_API_KEY: ${BACKEND_API_KEY:?Set BACKEND_API_KEY in root .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      # 사용자가 없을 때 최초 관리자 생성에만 사용
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     volumes:
       - meeting-data:/app/data
     restart: unless-stopped
@@ -18,7 +21,6 @@ services:
       UPLOAD_API_URL: http://backend:8000
       BACKEND_API_KEY: ${BACKEND_API_KEY:?Set BACKEND_API_KEY in root .env}
       WORKSPACE_MODE: standalone
-      WORKSPACE_PASSWORD: ${WORKSPACE_PASSWORD:?Set ASCII WORKSPACE_PASSWORD in root .env}
     depends_on:
       - backend
     restart: unless-stopped
