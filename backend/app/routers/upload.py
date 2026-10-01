@@ -15,7 +15,7 @@ from app.storage.local import AudioSizeError
 from app.services.workspace import Workspace
 from app.services.guard import mask_transcript_segments, save_guard_report
 from app.services.llm import LLMUnavailable
-from app.services.name_guard import pseudonymise_segments, save_name_map, unmask_model
+from app.services.name_guard import pseudonymise_segments, unmask_model
 from app.services.orchestrator import analyse, save_analysis
 from app.services.retrieval import retrieve_context
 from app.services.stt import save_transcript, transcribe
@@ -85,7 +85,6 @@ async def _run_stt_and_guard(
         )
         # Replace person names with [PERSON_n]; the token map never leaves this server
         masked_segments_raw, name_tokens = pseudonymise_segments(masked_segments_raw, participants)
-        await save_name_map(name_tokens, file_key, base_dir)
         masked_full_text = " ".join(s["text"] for s in masked_segments_raw)
         masked_transcript = transcript.model_copy(update={
             "segments": [TranscriptSegment(**s) for s in masked_segments_raw],
