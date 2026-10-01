@@ -1,8 +1,10 @@
 """
 Write Queue — asyncio.Queue workers that publish approved drafts.
 
-Workers: jira_worker, confluence_worker, slack_worker, pdf_worker
+Workers: jira_worker, confluence_worker, slack_worker, pdf_worker, regional_slack
 Each retries up to 3 times with exponential backoff on failure.
+Tasks whose schedule_time is a future ISO timestamp wait until then (Timezone Scheduler, #18).
+Scheduled tasks live in memory: a restart drops them (callers mark them failed on recovery).
 Audit log written to data/recordings/<job_id>/audit.log.
 """
 import asyncio
@@ -13,7 +15,7 @@ from base64 import b64encode
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
@@ -31,9 +33,36 @@ class WriteTask:
     payload: dict        # draft content
     base_dir: Path
     schedule_time: str = ""
+    # Optional hooks: skip at send time (e.g. meeting deleted) / report the final outcome.
+    should_send: Optional[Callable[[], Awaitable[bool]]] = None
+    on_result: Optional[Callable[[bool, Any], Awaitable[None]]] = None
+
+
+_delayed: set[asyncio.Task] = set()
+
+
+def _delay_seconds(schedule_time: str, now: Optional[datetime] = None) -> float:
+    """Seconds until schedule_time (ISO 8601); 0 for empty, past or non-timestamp values."""
+    try:
+        when = datetime.fromisoformat(schedule_time)
+    except ValueError:
+        return 0.0
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - (now or datetime.now(timezone.utc))).total_seconds())
 
 
 async def enqueue(task: WriteTask) -> None:
+    delay = _delay_seconds(task.schedule_time)
+    if delay > 0:
+        async def release() -> None:
+            await asyncio.sleep(delay)
+            await _queue.put(task)
+        pending = asyncio.create_task(release())
+        _delayed.add(pending)
+        pending.add_done_callback(_delayed.discard)
+        logger.info("[WriteQueue] Scheduled %s:%s in %.0fs", task.job_id, task.artifact, delay)
+        return
     await _queue.put(task)
     logger.info("[WriteQueue] Enqueued %s:%s", task.job_id, task.artifact)
 
@@ -53,7 +82,7 @@ async def start_worker() -> None:
 
 async def _dispatch(task: WriteTask) -> None:
     # Honour cancellation from timezone_scheduler.cancel_scheduled()
-    if task.schedule_time == "cancelled":
+    if task.schedule_time == "cancelled" or (task.should_send and not await task.should_send()):
         logger.info("[WriteQueue] Skipping cancelled task %s:%s", task.job_id, task.artifact)
         await _write_audit(task, success=False, detail={"error": "cancelled"})
         return
@@ -68,12 +97,16 @@ async def _dispatch(task: WriteTask) -> None:
                 result = await _publish_slack(task.payload)
             elif task.artifact == "pdf":
                 result = await _publish_pdf_slack(task.payload, task.base_dir)
+            elif task.artifact == "regional_slack":
+                result = await _publish_regional_slack(task.payload)
             else:
                 logger.warning("[WriteQueue] Unknown artifact type: %s", task.artifact)
                 return
 
             await _write_audit(task, success=True, detail=result)
             logger.info("[WriteQueue] ✓ %s:%s published", task.job_id, task.artifact)
+            if task.on_result:
+                await task.on_result(True, result)
             return
         except Exception as exc:
             logger.warning("[WriteQueue] Attempt %d/%d failed for %s:%s — %s",
@@ -83,6 +116,8 @@ async def _dispatch(task: WriteTask) -> None:
 
     await _write_audit(task, success=False, detail={"error": "max retries exceeded"})
     logger.error("[WriteQueue] ✗ %s:%s failed after %d attempts", task.job_id, task.artifact, _MAX_RETRIES)
+    if task.on_result:
+        await task.on_result(False, {"error": "max retries exceeded"})
 
     from app.services.alert import send_failure_alert
     await send_failure_alert(
@@ -184,6 +219,20 @@ async def _publish_slack(payload: dict) -> dict:
             raise RuntimeError(data.get("error", "Slack API error"))
 
     return {"ts": data.get("ts"), "channel": data.get("channel")}
+
+
+async def _publish_regional_slack(payload: dict) -> dict:
+    """Regional Slack Delivery (#19): region channel + KR/EN text chosen by the schedule's region."""
+    from app.services.regional_delivery import deliver_regional
+    from app.services.timezone_scheduler import Region, SendSchedule
+
+    sched = payload["schedule"]
+    schedule = SendSchedule(region=Region(sched["region"]), send_at=sched.get("send_at"),
+                            local_time=sched.get("local_time", ""), scheduled=bool(sched.get("scheduled")))
+    result = await deliver_regional(payload["text_ko"], payload["text_en"], payload["title"], schedule)
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error", "slack delivery failed"))
+    return result
 
 
 async def _publish_pdf_slack(payload: dict, base_dir: Path) -> dict:
