@@ -31,6 +31,19 @@ Jira/Confluence로는 발송하지 않으며, `SLACK_BOT_TOKEN`을 설정하면 
 
 Docker Space는 현재 PRO 구독이 필요합니다. 사용할 경우 `deploy/container/Dockerfile`을 업로드 루트의 `Dockerfile`로, `deploy/huggingface/README.md`를 Space 루트 README로 사용하고 위와 같은 값을 Space Secrets에 등록합니다. 영구 저장소는 없습니다.
 
+### 캘린더 감지 → Slack DM → 녹음 준비 (워크플로 1~3)
+
+회의 5분 전에 참석자에게 Slack DM(참석자 현지 시간 표시)으로 "녹음 세션을 준비할까요?"를 보내고, **녹음 준비**를 누르면 녹음 페이지 링크를 보냅니다. 배포 컨테이너는 `SLACK_BOT_TOKEN`과 `SLACK_APP_TOKEN`이 모두 있을 때 Slack 봇을 함께 실행합니다(Socket Mode라 공개 URL 불필요).
+
+1. **캘린더 구독 주소**(OAuth 불필요): Google 캘린더 → 설정 → 해당 캘린더 → **"iCal 형식의 비공개 주소"** 복사 / Outlook → 설정 → 일정 → 공유 일정 → **캘린더 게시**의 ICS 링크. 여러 개면 쉼표로 구분해 `CALENDAR_ICS_URLS`에 넣습니다. 이 주소는 비밀번호와 같으니 공유하지 마세요.
+2. **Slack 앱 수준 토큰**: Slack 앱 → **Basic Information → App-Level Tokens → Generate**, 범위 `connections:write` → `xapp-…`를 `SLACK_APP_TOKEN`에 넣습니다. (앱 매니페스트에 Socket Mode·Interactivity·`users:read.email`이 켜져 있어야 합니다.)
+3. 참석자 이메일이 Slack 계정 이메일과 같아야 DM이 갑니다. 장소가 있는 회의만 대상이며, 온라인 회의도 포함하려면 `CALENDAR_INCLUDE_ONLINE=true`.
+4. **무료 플랜 절전 방지**: Render 무료 인스턴스는 15분간 요청이 없으면 잠들어 캘린더 감지가 멈춥니다. GitHub 저장소 **Settings → Secrets and variables → Actions → Variables**에 `KEEPALIVE_URL`(배포 주소)을 추가하면 `.github/workflows/keepalive.yml`이 10분마다 깨웁니다(한 서비스 상시 실행 ≈ 월 744시간, 무료 750시간 이내).
+
+**녹음 링크(워크플로 4~6)**: DM의 녹음 링크는 회의·Slack 사용자·만료 시각(회의 종료 2시간 후)을 `RECORDING_LINK_SECRET`으로 서명한 링크입니다. 웹 로그인 없이 **그 회의의 녹음 페이지와 업로드만** 허용하고, 다른 회의로 바꾸거나 위조·만료된 링크는 거부합니다. 업로드한 사람은 `slack:<사용자ID>`로 회의 목록과 감사 기록에 남습니다. 회의 시작 시각이 되면 자동으로 녹음을 시작하고 종료 시각에 멈춘 뒤 업로드합니다.
+
+Microsoft 365 계정은 기존 Graph 연동(`AZURE_*`)도 계속 지원하지만 로그인 콜백이 내부 포트라 배포 환경에서는 ICS 방식을 권장합니다.
+
 ### Slack 채널 게시 (워크플로 16→17→18→19)
 
 승인하면 **Write Queue**가 **Timezone Scheduler** 결과에 따라 근무시간에는 바로, 근무시간 외에는 다음 근무 시작 시각(주말 제외)에 **지역 채널**로 게시합니다. 메시지는 Slack Brief 형식(요약·결정·할 일·담당자)이고, APAC은 한국어, EU/NA는 영어입니다. 승인할 때 "지금 바로 게시"를 고를 수 있고, 실패하거나 서버 재시작으로 예약이 취소되면 회의 화면에서 다시 게시할 수 있습니다.

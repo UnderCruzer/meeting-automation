@@ -1,4 +1,4 @@
-from app.routers.auth import current_user
+from app.routers.auth import Uploader, current_user, upload_actor
 import asyncio
 import io
 import json
@@ -64,6 +64,7 @@ def _app(tmp_path, monkeypatch, max_bytes):
     app.state.workspace = Workspace(tmp_path)
     app.include_router(upload.router)
     app.dependency_overrides[current_user] = lambda: None  # auth covered in test_auth.py
+    app.dependency_overrides[upload_actor] = lambda: Uploader(None)
     return TestClient(app)
 
 

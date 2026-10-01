@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { check, secured, toResponse } from "@/lib/gate";
 import { isCrossSiteWrite } from "@/lib/security";
+import { verifyGrant } from "@/lib/recordingGrant";
 
 const PUBLIC_PATHS = new Set(["/login", "/api/auth/login"]);
 
@@ -12,6 +13,10 @@ export async function proxy(req: NextRequest) {
       return toResponse({ status: 403, message: "다른 사이트에서 보낸 요청은 허용되지 않습니다." });
     return secured(NextResponse.next());
   }
+
+  // Signed Slack DM link: this meeting's recording page only, no web login needed.
+  if (pathname === "/record" && req.method === "GET" && await verifyGrant(req.nextUrl.searchParams.get("grant")))
+    return secured(NextResponse.next());
 
   const gate = await check(req.method, req.headers);
   if ("rejection" in gate) {

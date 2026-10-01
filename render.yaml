@@ -32,6 +32,16 @@ services:
         sync: false
       - key: WORKSPACE_TIMEZONES
         value: Asia/Seoul
+      # 워크플로 1~3 (캘린더 감지 → Slack DM → 녹음 준비 승인). 둘 다 있어야 Slack 봇이 실행됨
+      - key: SLACK_APP_TOKEN
+        sync: false
+      - key: CALENDAR_ICS_URLS
+        sync: false
+      - key: DEFAULT_TIMEZONE
+        value: Asia/Seoul
+      # 워크플로 4: Slack DM 녹음 링크 서명 키 (봇과 웹이 공유) — 자동 생성
+      - key: RECORDING_LINK_SECRET
+        generateValue: true
       # 백엔드 내부 인증 키 — 사람이 쓸 일 없음, Render가 임의 값 생성
       - key: BACKEND_API_KEY
         generateValue: true
