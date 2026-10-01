@@ -78,6 +78,23 @@ async def edit_action_items(job_id: str, body: ActionItemsEdit, request: Request
     return {"action_items": items}
 
 
+class ItemDone(BaseModel):
+    done: bool
+
+
+@router.patch("/jobs/{job_id}/action-items/{index}")
+async def set_item_done(job_id: str, index: int, body: ItemDone, request: Request,
+                        user: Optional[User] = Depends(current_user)):
+    """Workflow 21 — track completion so follow-ups stop once a task is done."""
+    username = user.username if user else None
+    if not await asyncio.to_thread(request.app.state.workspace.set_item_done, job_id, index, body.done, username):
+        raise HTTPException(409, "승인된 회의의 할 일만 완료 처리할 수 있습니다.")
+    title = await asyncio.to_thread(request.app.state.workspace.title, job_id)
+    await _audit(request, "task_done" if body.done else "task_reopen", username, job_id=job_id, title=title,
+                 detail=f"할 일 #{index + 1}")
+    return {"index": index, "done": body.done}
+
+
 @router.post("/jobs/{job_id}/retry")
 async def retry(job_id: str, request: Request, background_tasks: BackgroundTasks,
                 user: Optional[User] = Depends(current_user)):
