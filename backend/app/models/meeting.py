@@ -8,6 +8,13 @@ class MeetingMetadata(BaseModel):
     startTime: str
     endTime: str
     location: str = ""
+    # Names to pseudonymise before any LLM call (entered at upload, never sent out).
+    participants: list[str] = []
+
+    @field_validator("participants")
+    @classmethod
+    def clean_participants(cls, v: list[str]) -> list[str]:
+        return [p.strip()[:50] for p in v[:50] if p.strip()]
 
     @field_validator("meetingId")
     @classmethod
