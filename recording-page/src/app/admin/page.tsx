@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import AppShell, { type Me } from "@/components/AppShell";
 import { useToast } from "@/components/Toast";
+import MetricsPanel from "@/components/MetricsPanel";
 import { api, displayActor, formatWhen, jsonInit } from "@/lib/workspace";
 
 type User = { id: number; username: string; role: "admin" | "member"; active: boolean; mustChangePassword: boolean };
@@ -12,12 +13,13 @@ const ACTIONS: Record<string, string> = {
   user_create: "사용자 추가", user_update: "사용자 변경", upload: "업로드", approve: "승인", reject: "거절",
   delete: "회의 삭제", purge: "보존 기간 만료 삭제", publish_request: "Slack 게시 요청", publish: "Slack 게시 결과",
   retry: "다시 분석", edit: "할 일 수정", task_done: "할 일 완료", task_reopen: "할 일 다시 열기", briefing: "브리핑",
+  feedback: "요약 피드백",
 };
 const WARN_ACTIONS = new Set(["login_failed", "delete", "purge"]);
 
 export default function AdminPage() {
   const [me, setMe] = useState<Me | null>(null);
-  const [tab, setTab] = useState<"users" | "audit" | "briefing">("users");
+  const [tab, setTab] = useState<"users" | "metrics" | "audit" | "briefing">("users");
   const [users, setUsers] = useState<User[] | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [forbidden, setForbidden] = useState(false);
@@ -53,15 +55,16 @@ export default function AdminPage() {
 
   return <AppShell section="admin" onUser={setMe}>
     <main className="page">
-      <div className="page-head"><div><h1>사용자 관리</h1><p className="muted">계정을 관리하고 누가 무엇을 했는지 확인합니다.</p></div></div>
+      <div className="page-head"><div><h1>관리</h1><p className="muted">계정, 품질 지표, 감사 기록, 브리핑을 관리합니다.</p></div></div>
       {forbidden ? <div className="alert alert-danger"><div className="alert-body">관리자만 사용할 수 있습니다.</div></div> : <>
         <div className="tabs" role="tablist">
           <button className="tab" role="tab" aria-selected={tab === "users"} onClick={() => setTab("users")}>사용자 {users ? `(${users.length})` : ""}</button>
+          <button className="tab" role="tab" aria-selected={tab === "metrics"} onClick={() => setTab("metrics")}>품질 지표</button>
           <button className="tab" role="tab" aria-selected={tab === "audit"} onClick={() => setTab("audit")}>감사 기록</button>
           <button className="tab" role="tab" aria-selected={tab === "briefing"} onClick={() => setTab("briefing")}>브리핑</button>
         </div>
 
-        {tab === "users" && <div className="split" style={{ gridTemplateColumns: "minmax(0, 1fr) 320px" }}>
+        {tab === "users" && <div className="grid-main-side">
           <div className="card">
             <div className="table-wrap"><table className="table">
               <thead><tr><th>사용자</th><th>역할</th><th>상태</th><th style={{ textAlign: "right" }}>관리</th></tr></thead>
@@ -96,6 +99,7 @@ export default function AdminPage() {
         </div>}
 
         {tab === "briefing" && <BriefingPanel />}
+        {tab === "metrics" && <MetricsPanel />}
 
         {tab === "audit" && <div className="card">
           <div className="row" style={{ padding: "14px 16px" }}><span className="subtle">최근 200건 · 회의를 삭제해도 기록(제목만)은 남습니다.</span></div>

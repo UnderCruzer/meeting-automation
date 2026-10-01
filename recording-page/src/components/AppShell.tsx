@@ -45,7 +45,7 @@ export default function AppShell({ section, onUser, children }: {
   }
 
   const nav: Array<[Section, string, string]> = [["meetings", "/", "회의"], ["tasks", "/tasks", "할 일"]];
-  if (me?.role === "admin") nav.push(["admin", "/admin", "사용자 관리"]);
+  if (me?.role === "admin") nav.push(["admin", "/admin", "관리"]);
 
   return <>
     <header className="topbar">
