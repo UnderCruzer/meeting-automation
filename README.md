@@ -50,6 +50,7 @@ Docker Space는 현재 PRO 구독이 필요합니다. 사용할 경우 `deploy/c
 - **보안 헤더:** CSP(`frame-ancestors 'none'`), `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`(마이크만 허용), HSTS. `X-Powered-By`와 이미지 최적화 엔드포인트는 끕니다.
 - **요청 제한:** 업로드는 실제 클라이언트 IP 기준으로 제한합니다. 백엔드는 API 키가 맞는 내부 요청의 `X-Client-IP`만 신뢰합니다.
 - **의존성:** CI가 `pip-audit`, `npm audit --audit-level=high`로 알려진 취약점을 검사합니다.
+- **실패 처리:** Gemini가 혼잡(503)·한도 초과(429)·일시 오류를 내면 간격을 늘려가며 재시도하고(`GEMINI_MAX_ATTEMPTS`), 그래도 안 되면 `GEMINI_FALLBACK_MODELS`로 시도합니다. 분석 단계에서 실패한 회의는 가려진 전사문만 보관해 두었다가 화면의 **다시 분석**으로 재시도할 수 있습니다(재업로드·재전사 없음). 실패 화면에는 단계별 이유(전사 실패, AI 혼잡, 분석 실패, 음성 없음, 서버 재시작)가 표시됩니다.
 - **데이터 보존:** 처리가 끝나면(실패 포함) 원본 녹음을 삭제하고 원문 전사는 저장하지 않습니다(`RETAIN_RAW_RECORDINGS=true`일 때만 보관). 검토 화면의 근거 인용문도 개인정보 패턴을 가린 전사에서 가져옵니다. 회의는 화면에서 삭제할 수 있고(분석 중 제외), `MEETING_RETENTION_DAYS`를 설정하면 기간이 지난 회의가 자동 삭제됩니다.
 
 ### 외부 공급자 데이터 정책 (2026-10 기준, 사용 전 원문 확인)
