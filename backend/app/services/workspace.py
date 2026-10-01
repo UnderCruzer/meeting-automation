@@ -9,6 +9,11 @@ class Workspace:
         self.path = Path(base_dir) / "workspace.sqlite3"
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, summary TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            # Added with accounts: who uploaded and who decided (older databases are migrated in place).
+            existing = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
+            for column in ("uploaded_by", "decided_by", "decided_at"):
+                if column not in existing:
+                    db.execute(f"ALTER TABLE jobs ADD COLUMN {column} TEXT")
 
     @contextmanager
     def connect(self):
@@ -20,9 +25,9 @@ class Workspace:
         finally:
             db.close()
 
-    def create(self, job_id, title):
+    def create(self, job_id, title, uploaded_by=None):
         with self.connect() as db:
-            db.execute("INSERT INTO jobs(id,title,status) VALUES (?,?,'processing')", (job_id,title))
+            db.execute("INSERT INTO jobs(id,title,status,uploaded_by) VALUES (?,?,'processing',?)", (job_id,title,uploaded_by))
 
     def finish(self, job_id, summary):
         with self.connect() as db:
@@ -42,12 +47,20 @@ class Workspace:
             rows = db.execute("SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT 100").fetchall()
         return [{**dict(row), "summary": json.loads(row["summary"]) if row["summary"] else None} for row in rows]
 
-    def decide(self, job_id, status):
+    def decide(self, job_id, status, decided_by=None):
         if status not in ("approved", "rejected"):
             raise ValueError("Invalid decision")
         with self.connect() as db:
-            changed = db.execute("UPDATE jobs SET status=? WHERE id=? AND status='review'", (status,job_id)).rowcount
+            changed = db.execute(
+                "UPDATE jobs SET status=?, decided_by=?, decided_at=CURRENT_TIMESTAMP WHERE id=? AND status='review'",
+                (status, decided_by, job_id),
+            ).rowcount
         return bool(changed)
+
+    def title(self, job_id):
+        with self.connect() as db:
+            row = db.execute("SELECT title FROM jobs WHERE id=?", (job_id,)).fetchone()
+        return row["title"] if row else None
 
     def delete(self, job_id):
         """Delete a finished job row. Returns False if missing, raises if still processing."""
