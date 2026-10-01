@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 
 from app.models.meeting import MeetingMetadata, UploadResponse
+from app.models.transcript import TranscriptSegment
 from app.storage.local import AudioSizeError
 from app.services.workspace import Workspace
 from app.services.guard import mask_transcript_segments, save_guard_report
@@ -65,9 +66,14 @@ async def _run_stt_and_guard(
             [seg.model_dump() for seg in transcript.segments]
         )
         masked_full_text = " ".join(s["text"] for s in masked_segments_raw)
+        masked_transcript = transcript.model_copy(update={
+            "segments": [TranscriptSegment(**s) for s in masked_segments_raw],
+            "full_text": masked_full_text,
+        })
 
-        # Persist original transcript (contains raw text — treat as sensitive)
-        await save_transcript(transcript, file_key, base_dir)
+        # Original transcript contains raw PII — persisted only when explicitly retained
+        if _retain_raw():
+            await save_transcript(transcript, file_key, base_dir)
 
         # Persist guard report (masked text + match metadata)
         await save_guard_report(file_key, base_dir, all_matches, masked_full_text)
@@ -76,8 +82,8 @@ async def _run_stt_and_guard(
         analysis = await analyse(transcript, masked_text=masked_full_text)
         await save_analysis(analysis, file_key, base_dir)
 
-        # Enrich with citations + quality validation
-        summary = build_summary(analysis, transcript)
+        # Enrich with citations + quality validation — citations quote the masked text
+        summary = build_summary(analysis, masked_transcript)
         await save_summary(summary, file_key, base_dir)
 
         await asyncio.to_thread(workspace.finish, job_id, summary.model_dump())
@@ -126,3 +132,11 @@ async def _run_stt_and_guard(
     except Exception:
         await asyncio.to_thread(workspace.fail, job_id)
         logger.exception("[STT+Guard] Failed for %s", meeting_id)
+    finally:
+        # Raw audio is no longer needed once processed (or failed — the user re-uploads).
+        if not _retain_raw():
+            audio_path.unlink(missing_ok=True)
+
+
+def _retain_raw() -> bool:
+    return os.getenv("RETAIN_RAW_RECORDINGS", "").lower() in ("1", "true", "yes")
