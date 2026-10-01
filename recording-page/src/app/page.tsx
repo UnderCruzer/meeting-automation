@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { encodeToWav } from "@/lib/audioEncoder";
+import AccountBar from "@/components/AccountBar";
 
 type Action = { description: string; assignee: string; due_date: string; citation_text: string };
 type Job = { id: string; title: string; status: string; summary: null | { summary_ko: string; decisions: {text: string}[]; action_items: Action[]; quality_flags: {message: string}[] } };
@@ -66,6 +67,7 @@ export default function Home() {
   }
   const current = jobs.find(j => j.id === selected);
   return <main style={{maxWidth: 1040, margin: "40px auto", padding: 24, fontFamily: "system-ui", color: "#182536"}}>
+    <AccountBar />
     <h1>회의에서 실행까지</h1><p>녹음을 올리고 회의 내용을 검토한 뒤, 승인한 할 일을 한곳에서 확인하세요.</p>
     {ephemeral && <p role="note" style={{padding:16, background:"#fff4df", borderRadius:8}}>체험용 서버입니다. 재시작·재배포 시 녹음과 회의 기록이 초기화될 수 있습니다. 보존이 필요한 자료는 올리지 마세요.</p>}
     <form onSubmit={upload} style={{display: "grid", gap: 12, padding: 24, background: "#f0f4f8", borderRadius: 12}}>
