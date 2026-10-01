@@ -2,11 +2,18 @@
 import { useCallback, useEffect, useState } from "react";
 import AccountBar, { type Me } from "@/components/AccountBar";
 
+type AuditEvent = { id: number; at: string; username: string | null; action: string; title: string | null; detail: string | null; ip: string | null };
+const ACTION_LABELS: Record<string, string> = {
+  login: "로그인", login_failed: "로그인 실패", logout: "로그아웃", password_change: "비밀번호 변경",
+  user_create: "사용자 추가", user_update: "사용자 변경", upload: "업로드", approve: "승인", reject: "거절",
+  delete: "회의 삭제", purge: "보존 기간 만료 삭제",
+};
 type User = { id: number; username: string; role: "admin" | "member"; active: boolean; mustChangePassword: boolean };
 
 export default function AdminPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
@@ -14,6 +21,8 @@ export default function AdminPage() {
     if (res.status === 403) { setError("관리자만 사용할 수 있습니다."); return; }
     if (!res.ok) { setError("사용자 목록을 불러오지 못했습니다."); return; }
     setUsers(await res.json());
+    const audit = await fetch("/api/auth/audit", { cache: "no-store" });
+    if (audit.ok) setEvents(await audit.json());
   }, []);
   useEffect(() => { load(); }, [load]);
   async function call(url: string, method: string, body: unknown) {
@@ -62,5 +71,14 @@ export default function AdminPage() {
       </tr>)}</tbody>
     </table>
     <p><small>비활성화하거나 비밀번호를 재설정하면 해당 사용자의 모든 세션이 즉시 로그아웃됩니다.</small></p>
+    <h2>감사 기록</h2>
+    <p><small>최근 200건 · 시각은 UTC · 회의를 삭제해도 기록은 남습니다(제목만, 회의 내용 없음).</small></p>
+    <table style={{width: "100%", borderCollapse: "collapse"}}>
+      <thead><tr><th align="left">시각</th><th align="left">사용자</th><th align="left">동작</th><th align="left">대상</th><th align="left">IP</th></tr></thead>
+      <tbody>{events.map(e => <tr key={e.id} style={{borderTop: "1px solid #ccd5df"}}>
+        <td>{e.at}</td><td>{e.username ?? "-"}</td><td>{ACTION_LABELS[e.action] ?? e.action}</td>
+        <td>{e.title ?? e.detail ?? "-"}</td><td>{e.ip ?? "-"}</td>
+      </tr>)}</tbody>
+    </table>
   </main>;
 }
