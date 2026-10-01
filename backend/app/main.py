@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.workspace import Workspace
+from app.services.accounts import Accounts
+from app.routers.auth import router as auth_router
 from app.routers.workspace import router as workspace_router
 from app.config import validate_env
 from app.middleware.auth import ApiKeyMiddleware
@@ -22,6 +25,7 @@ from app.services import llm
 from app.services.retention import run_purge_loop
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -30,6 +34,10 @@ async def lifespan(app: FastAPI):
     storage_dir = os.getenv("STORAGE_DIR", "./data/recordings")
     app.state.storage = LocalStorage(storage_dir)
     app.state.workspace = await asyncio.to_thread(Workspace, storage_dir)
+    app.state.accounts = await asyncio.to_thread(
+        Accounts, storage_dir, int(os.getenv("SESSION_TTL_HOURS", "12"))
+    )
+    await asyncio.to_thread(bootstrap_admin, app.state.accounts)
     await asyncio.to_thread(app.state.workspace.recover)
     # Start write queue worker as background task
     worker_task = asyncio.create_task(start_worker())
@@ -37,6 +45,19 @@ async def lifespan(app: FastAPI):
     yield
     worker_task.cancel()
     purge_task.cancel()
+
+
+def bootstrap_admin(accounts: Accounts) -> None:
+    """Create the first admin from env. WORKSPACE_PASSWORD (shared-password era) maps to user 'workspace'."""
+    username = os.getenv("ADMIN_USERNAME") or ("workspace" if os.getenv("WORKSPACE_PASSWORD") else "admin")
+    password = os.getenv("ADMIN_PASSWORD") or os.getenv("WORKSPACE_PASSWORD", "")
+    if accounts.count():
+        return
+    if password:
+        accounts.ensure_admin(username, password)
+        logger.info("[Auth] Created initial admin '%s'", username)
+    elif os.getenv("WORKSPACE_MODE") == "standalone":
+        raise RuntimeError("ADMIN_PASSWORD가 필요합니다 — 사용자가 없어 아무도 로그인할 수 없습니다.")
 
 
 app = FastAPI(title="Meeting Automation Backend", lifespan=lifespan)
@@ -48,10 +69,11 @@ origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:300
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_methods=["POST", "GET", "DELETE"],
+    allow_methods=["POST", "GET", "DELETE", "PATCH"],
     allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
 
+app.include_router(auth_router)
 app.include_router(upload_router)
 app.include_router(workspace_router)
 app.include_router(review_router)

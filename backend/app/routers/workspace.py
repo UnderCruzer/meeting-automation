@@ -1,12 +1,13 @@
 import asyncio
 from typing import Literal
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from app.routers.auth import current_user
 from app.services.retention import delete_job
 from app.services.workspace import JobBusyError
 
-router = APIRouter(prefix="/workspace")
+router = APIRouter(prefix="/workspace", dependencies=[Depends(current_user)])
 
 class Decision(BaseModel):
     status: Literal["approved", "rejected"]

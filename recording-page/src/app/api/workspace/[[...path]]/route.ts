@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { backendHeaders, backendUrl, readSessionToken } from "@/lib/session";
 
 async function forward(req: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
   const path = (await params).path ?? [];
@@ -11,9 +12,9 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path?: 
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   }
   try {
-    const res = await fetch(`${process.env.UPLOAD_API_URL ?? "http://localhost:8000"}/workspace/${path.join("/")}`, {
+    const res = await fetch(backendUrl(`/workspace/${path.join("/")}`), {
       method: req.method, cache: "no-store",
-      headers: { "X-API-Key": process.env.BACKEND_API_KEY ?? "", "Content-Type": "application/json" },
+      headers: backendHeaders(readSessionToken(req.headers), { "Content-Type": "application/json" }),
       body: req.method === "POST" ? await req.text() : undefined,
     });
     return new NextResponse(await res.text(), { status: res.status, headers: { "Content-Type": "application/json" } });

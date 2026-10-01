@@ -1,3 +1,4 @@
+from app.routers.auth import current_user
 import asyncio
 import io
 import json
@@ -62,6 +63,7 @@ def _app(tmp_path, monkeypatch, max_bytes):
     app.state.storage = LocalStorage(tmp_path)
     app.state.workspace = Workspace(tmp_path)
     app.include_router(upload.router)
+    app.dependency_overrides[current_user] = lambda: None  # auth covered in test_auth.py
     return TestClient(app)
 
 

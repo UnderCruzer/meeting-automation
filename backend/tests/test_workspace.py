@@ -1,3 +1,4 @@
+from app.routers.auth import current_user
 from concurrent.futures import ThreadPoolExecutor
 from app.services.workspace import Workspace
 
@@ -40,6 +41,7 @@ def test_decision_api_rejects_duplicates_and_invalid_values(tmp_path):
     app = FastAPI()
     app.state.workspace = Workspace(tmp_path)
     app.include_router(router)
+    app.dependency_overrides[current_user] = lambda: None  # auth covered in test_auth.py
     app.state.workspace.create("one", "회의")
     app.state.workspace.finish("one", {})
     with TestClient(app) as client:

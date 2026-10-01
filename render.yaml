@@ -22,6 +22,8 @@ services:
       # 백엔드 내부 인증 키 — 사람이 쓸 일 없음, Render가 임의 값 생성
       - key: BACKEND_API_KEY
         generateValue: true
-      # 로그인 비밀번호(사용자 이름: workspace) — 대시보드 Environment에서 확인·변경
-      - key: WORKSPACE_PASSWORD
+      # 최초 관리자 계정 — 사용자가 없을 때만 생성. 비밀번호는 대시보드 Environment에서 확인
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
         generateValue: true

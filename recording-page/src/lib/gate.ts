@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { clientIp } from "@/lib/clientIp";
-import { SECURITY_HEADERS, isCrossSiteWrite, isLockedOut, recordFailure } from "@/lib/security";
+import { NextResponse } from "next/server";
+import { SECURITY_HEADERS, isCrossSiteWrite } from "@/lib/security";
+import { readSessionToken, sessionUser, type SessionUser } from "@/lib/session";
 
 export type Rejection = { status: number; message: string; headers?: Record<string, string> };
+export type Gate = { rejection: Rejection } | { token: string; user: SessionUser | null };
 
 export function secured(res: NextResponse): NextResponse {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.headers.set(name, value);
@@ -13,51 +14,25 @@ export function toResponse(rejection: Rejection): NextResponse {
   return secured(new NextResponse(rejection.message, { status: rejection.status, headers: rejection.headers }));
 }
 
-async function sameSecret(provided: string, expected: string): Promise<boolean> {
-  const encoder = new TextEncoder();
-  const digest = (value: string) => crypto.subtle.digest("SHA-256", encoder.encode(value));
-  const [a, b] = await Promise.all([digest(provided), digest(expected)]);
-  const left = new Uint8Array(a), right = new Uint8Array(b);
-  let difference = 0;
-  for (let i = 0; i < left.length; i++) difference |= left[i] ^ right[i];
-  return difference === 0;
+/** Accounts are enforced in standalone mode or once an admin password is configured. */
+export function authEnabled(): boolean {
+  return process.env.WORKSPACE_MODE === "standalone" || process.env.AUTH_ENABLED === "true";
 }
 
 /**
- * CSRF check, login lockout and Basic auth. Returns a rejection, or null to continue.
- * Used by proxy.ts and by routes excluded from the proxy (so their bodies are not buffered).
+ * CSRF check + session check. Used by proxy.ts and by routes excluded from the proxy
+ * (so their bodies are not buffered). Login attempts are rate-limited in the login route.
  */
-export async function check(method: string, headers: Headers): Promise<Rejection | null> {
+export async function check(method: string, headers: Headers): Promise<Gate> {
   if (isCrossSiteWrite(method, headers))
-    return { status: 403, message: "다른 사이트에서 보낸 요청은 허용되지 않습니다." };
-
-  const password = process.env.WORKSPACE_PASSWORD;
-  if (!password) {
-    if (process.env.WORKSPACE_MODE === "standalone")
-      return { status: 503, message: "WORKSPACE_PASSWORD 설정이 필요합니다." };
-    return null;
+    return { rejection: { status: 403, message: "다른 사이트에서 보낸 요청은 허용되지 않습니다." } };
+  const token = readSessionToken(headers);
+  let user: SessionUser | null;
+  try {
+    user = await sessionUser(token);
+  } catch {
+    return { rejection: { status: 503, message: "인증 서버에 연결할 수 없습니다." } };
   }
-
-  const ip = clientIp(headers);
-  const retryAfter = isLockedOut(ip);
-  if (retryAfter) return {
-    status: 429, message: "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.",
-    headers: { "Retry-After": String(retryAfter) },
-  };
-
-  const provided = headers.get("authorization");
-  if (!provided || !(await sameSecret(provided, "Basic " + btoa("workspace:" + password)))) {
-    // The browser's first credential-less request is a challenge, not a failed guess.
-    if (provided) recordFailure(ip);
-    return {
-      status: 401, message: "인증이 필요합니다.",
-      headers: { "WWW-Authenticate": 'Basic realm="Meeting workspace", charset="UTF-8"' },
-    };
-  }
-  return null;
-}
-
-export async function gate(req: NextRequest): Promise<NextResponse | null> {
-  const rejection = await check(req.method, req.headers);
-  return rejection && toResponse(rejection);
+  if (!user && authEnabled()) return { rejection: { status: 401, message: "로그인이 필요합니다." } };
+  return { token, user };
 }

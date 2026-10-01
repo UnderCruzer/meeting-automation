@@ -5,9 +5,10 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.models.meeting import MeetingMetadata, UploadResponse
+from app.routers.auth import current_user
 from app.models.transcript import TranscriptSegment
 from app.storage.local import AudioSizeError
 from app.services.workspace import Workspace
@@ -28,7 +29,7 @@ router = APIRouter()
 MAX_FILE_BYTES = 500 * 1024 * 1024  # 500 MB
 
 
-@router.post("/upload", response_model=UploadResponse)
+@router.post("/upload", response_model=UploadResponse, dependencies=[Depends(current_user)])
 async def upload_audio(
     request: Request,
     background_tasks: BackgroundTasks,

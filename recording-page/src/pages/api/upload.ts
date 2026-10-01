@@ -2,6 +2,7 @@ import http from "node:http";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { clientIp } from "@/lib/clientIp";
 import { check } from "@/lib/gate";
+import { backendHeaders, backendUrl } from "@/lib/session";
 import { SECURITY_HEADERS } from "@/lib/security";
 
 /**
@@ -26,23 +27,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (typeof value === "string") headers.set(name, value);
     else if (Array.isArray(value)) headers.set(name, value.join(", "));
 
-  const rejection = await check(req.method ?? "GET", headers);
-  if (rejection) return send(res, rejection.status, rejection.message, rejection.headers);
+  const gate = await check(req.method ?? "GET", headers);
+  if ("rejection" in gate) return send(res, gate.rejection.status, gate.rejection.message, gate.rejection.headers);
   if (req.method !== "POST") return send(res, 405, "Method Not Allowed", { Allow: "POST" });
 
   const contentType = headers.get("content-type") ?? "";
   if (!contentType.startsWith("multipart/form-data"))
     return send(res, 415, JSON.stringify({ detail: "multipart/form-data required" }), { "Content-Type": "application/json" });
 
-  const target = new URL("/upload", process.env.UPLOAD_API_URL ?? "http://localhost:8000");
-  const forwardHeaders: http.OutgoingHttpHeaders = {
+  const target = new URL(backendUrl("/upload"));
+  const forwardHeaders: http.OutgoingHttpHeaders = backendHeaders(gate.token, {
     "Content-Type": contentType,
     // Backend rate-limits per client; every proxied request would otherwise look like 127.0.0.1.
     "X-Client-IP": clientIp(headers),
-  };
+  });
   const length = headers.get("content-length");
   if (length) forwardHeaders["Content-Length"] = length;
-  if (process.env.BACKEND_API_KEY) forwardHeaders["X-API-Key"] = process.env.BACKEND_API_KEY;
 
   await new Promise<void>(resolve => {
     const upstream = http.request(target, { method: "POST", headers: forwardHeaders }, backendRes => {
