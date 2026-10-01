@@ -36,7 +36,7 @@ class UploadRateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         limit, window = self._limit, self._window
-        ip = _client_ip(request)
+        ip = client_ip(request)
         now = time.monotonic()
 
         with self._lock:
@@ -57,7 +57,8 @@ class UploadRateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-def _client_ip(request: Request) -> str:
+def client_ip(request: Request) -> str:
+    """Real client IP: X-Client-IP from the authenticated web proxy, else the socket peer."""
     api_key = os.getenv("BACKEND_API_KEY", "")
     forwarded = request.headers.get("X-Client-IP", "").strip()
     provided = request.headers.get("X-API-Key", "")
