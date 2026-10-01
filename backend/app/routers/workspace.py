@@ -1,10 +1,11 @@
 import asyncio
 from typing import Literal, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.middleware.rate_limit import client_ip
 from app.routers.auth import current_user
+from app.routers.upload import retry_analysis
 from app.services.accounts import User
 from app.services.retention import delete_job
 from app.services.slack_publish import publish_job, slack_enabled
@@ -45,6 +46,19 @@ async def decide(job_id: str, decision: Decision, request: Request, user: Option
                                               request.app.state.storage, job,
                                               now=decision.publish_now, requested_by=username)
     return result
+
+
+@router.post("/jobs/{job_id}/retry")
+async def retry(job_id: str, request: Request, background_tasks: BackgroundTasks,
+                user: Optional[User] = Depends(current_user)):
+    """Re-run analysis from the stored masked transcript (after e.g. an AI overload)."""
+    payload = await asyncio.to_thread(request.app.state.workspace.start_retry, job_id)
+    if payload is None:
+        raise HTTPException(409, "다시 분석할 수 없는 회의입니다. 녹음을 다시 올려주세요.")
+    title = await asyncio.to_thread(request.app.state.workspace.title, job_id)
+    await _audit(request, "retry", user.username if user else None, job_id=job_id, title=title)
+    background_tasks.add_task(retry_analysis, request.app.state.storage.base_dir, job_id, payload)
+    return {"status": "processing"}
 
 
 @router.post("/jobs/{job_id}/publish")

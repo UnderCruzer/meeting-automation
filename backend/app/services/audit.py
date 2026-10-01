@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 ACTIONS = {
     "login", "login_failed", "logout", "password_change", "user_create", "user_update",
-    "upload", "approve", "reject", "delete", "purge", "publish_request", "publish",
+    "upload", "approve", "reject", "delete", "purge", "publish_request", "publish", "retry",
 }
 
 
