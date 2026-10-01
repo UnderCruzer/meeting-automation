@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 
 from app.models.summary import MeetingSummary
 from app.services.draft_slack import generate_slack_draft
@@ -15,6 +16,15 @@ from app.services.timezone_scheduler import resolve_send_time
 from app.services.write_queue import WriteTask, enqueue
 
 logger = logging.getLogger(__name__)
+
+
+_SLACK_CODE = re.compile(r"[a-z][a-z_]{2,40}")
+
+
+def slack_error_code(error: str) -> str:
+    """Slack API error codes (not_in_channel, …) are safe to show; anything else is generalised."""
+    error = (error or "").strip()
+    return error if _SLACK_CODE.fullmatch(error) else "delivery_error"
 
 
 def slack_enabled() -> bool:
@@ -51,13 +61,13 @@ async def publish_job(workspace, audit, storage, job: dict, *, now: bool, reques
 
     async def on_result(ok: bool, detail) -> None:
         status = "sent" if ok else "failed"
+        code = None if ok else slack_error_code((detail or {}).get("error", ""))
         await asyncio.to_thread(
             workspace.set_publish, job_id, status,
-            channel=(detail or {}).get("channel") if ok else None,
-            error=None if ok else "Slack 게시에 실패했습니다. 토큰·채널·봇 초대를 확인하세요.",
+            channel=(detail or {}).get("channel") if ok else None, error=code,
         )
         await asyncio.to_thread(audit.record, "publish", "system", job_id=job_id, title=job["title"],
-                                detail=f"slack {status} ({schedule.region.value})")
+                                detail=f"slack {status} ({schedule.region.value})" + (f": {code}" if code else ""))
 
     state = "scheduled" if schedule.scheduled else "queued"
     await asyncio.to_thread(workspace.set_publish, job_id, state, at=schedule.send_at)
