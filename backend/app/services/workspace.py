@@ -11,7 +11,9 @@ class Workspace:
             db.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, summary TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
             # Added with accounts: who uploaded and who decided (older databases are migrated in place).
             existing = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
-            for column in ("uploaded_by", "decided_by", "decided_at"):
+            for column in ("uploaded_by", "decided_by", "decided_at",
+                           # Slack publishing (#73): none|queued|scheduled|sent|failed
+                           "publish_status", "publish_at", "published_at", "publish_channel", "publish_error"):
                 if column not in existing:
                     db.execute(f"ALTER TABLE jobs ADD COLUMN {column} TEXT")
 
@@ -41,6 +43,9 @@ class Workspace:
         # 실행 중 재시작된 작업은 무한 대기 대신 실패로 표시한다.
         with self.connect() as db:
             db.execute("UPDATE jobs SET status='failed' WHERE status='processing'")
+            # Queued/scheduled Slack posts lived in memory and are gone after a restart.
+            db.execute("UPDATE jobs SET publish_status='failed', publish_error='서버 재시작으로 게시 예약이 취소되었습니다.'"
+                       " WHERE publish_status IN ('queued','scheduled')")
 
     def list(self):
         with self.connect() as db:
@@ -56,6 +61,24 @@ class Workspace:
                 (status, decided_by, job_id),
             ).rowcount
         return bool(changed)
+
+    def get(self, job_id):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            return None
+        return {**dict(row), "summary": json.loads(row["summary"]) if row["summary"] else None}
+
+    def set_publish(self, job_id, status, *, at=None, channel=None, error=None):
+        if status not in ("queued", "scheduled", "sent", "failed"):
+            raise ValueError("Invalid publish status")
+        with self.connect() as db:
+            db.execute(
+                "UPDATE jobs SET publish_status=?, publish_at=COALESCE(?, publish_at),"
+                " published_at=CASE WHEN ?='sent' THEN CURRENT_TIMESTAMP ELSE published_at END,"
+                " publish_channel=COALESCE(?, publish_channel), publish_error=? WHERE id=?",
+                (status, at, status, channel, error, job_id),
+            )
 
     def title(self, job_id):
         with self.connect() as db:
