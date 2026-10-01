@@ -7,9 +7,11 @@ if GEMINI_API_KEY is present, otherwise Claude.
 
 Every caller must pass PII-masked text; this module does not mask.
 """
+import asyncio
 import json
 import logging
 import os
+import random
 
 import anthropic
 import httpx
@@ -20,6 +22,14 @@ _CLAUDE_MODEL = "claude-sonnet-4-6"
 _GEMINI_DEFAULT_MODEL = "gemini-3.8-flash"
 _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 _GEMINI_TIMEOUT = 180.0
+_GEMINI_DEFAULT_FALLBACKS = "gemini-3.1-flash-lite"
+# Overload / rate-limit / transient server errors: worth retrying.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_MAX_BACKOFF_SECONDS = 30.0
+
+
+class LLMUnavailable(RuntimeError):
+    """The provider stayed overloaded or rate-limited after retries (try again later)."""
 
 # JSON Schema keys that Gemini's responseSchema (OpenAPI subset) accepts.
 _GEMINI_SCHEMA_KEYS = {
@@ -118,10 +128,24 @@ def to_gemini_schema(schema: dict) -> dict:
     return out
 
 
+def _gemini_models() -> list[str]:
+    primary = os.getenv("GEMINI_MODEL", _GEMINI_DEFAULT_MODEL)
+    fallbacks = os.getenv("GEMINI_FALLBACK_MODELS", _GEMINI_DEFAULT_FALLBACKS)
+    models = [primary] + [m.strip() for m in fallbacks.split(",") if m.strip()]
+    return list(dict.fromkeys(models))  # de-duplicate, keep order
+
+
+def _retry_after(res: httpx.Response) -> float | None:
+    try:
+        return min(float(res.headers.get("retry-after", "")), _MAX_BACKOFF_SECONDS)
+    except ValueError:
+        return None
+
+
 async def _gemini(
     key: str, prompt: str, system: str | None, max_tokens: int, extra_config: dict,
 ) -> str:
-    model = os.getenv("GEMINI_MODEL", _GEMINI_DEFAULT_MODEL)
+    """Call Gemini with retries on overload, then fall back to the next model."""
     body: dict = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         # Thinking models spend output tokens on reasoning; leave headroom.
@@ -129,18 +153,34 @@ async def _gemini(
     }
     if system:
         body["systemInstruction"] = {"parts": [{"text": system}]}
+    attempts = max(1, int(os.getenv("GEMINI_MAX_ATTEMPTS", "4")))
 
-    async with httpx.AsyncClient(timeout=_GEMINI_TIMEOUT) as client:
-        res = await client.post(
-            _GEMINI_URL.format(model=model),
-            headers={"x-goog-api-key": key},
-            json=body,
-        )
-    if res.status_code != 200:
-        # Response body may echo the prompt; log status only.
-        raise RuntimeError(f"Gemini API error {res.status_code}")
+    last_status: int | str = "unknown"
+    for model in _gemini_models():
+        for attempt in range(1, attempts + 1):
+            wait: float | None = None
+            try:
+                async with httpx.AsyncClient(timeout=_GEMINI_TIMEOUT) as client:
+                    res = await client.post(
+                        _GEMINI_URL.format(model=model), headers={"x-goog-api-key": key}, json=body,
+                    )
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_status = type(exc).__name__
+            else:
+                if res.status_code == 200:
+                    return _gemini_text(res.json())
+                if res.status_code not in _RETRYABLE_STATUS:
+                    # Response body may echo the prompt; report status only.
+                    raise RuntimeError(f"Gemini API error {res.status_code}")
+                last_status = res.status_code
+                wait = _retry_after(res)
+            logger.warning("[LLM] Gemini %s attempt %d/%d failed (%s)", model, attempt, attempts, last_status)
+            if attempt < attempts:
+                await asyncio.sleep(wait if wait is not None else min(2 ** attempt, _MAX_BACKOFF_SECONDS) + random.random())
+    raise LLMUnavailable(f"Gemini unavailable after retries ({last_status})")
 
-    data = res.json()
+
+def _gemini_text(data: dict) -> str:
     candidates = data.get("candidates") or []
     if not candidates:
         reason = (data.get("promptFeedback") or {}).get("blockReason", "no candidates")
