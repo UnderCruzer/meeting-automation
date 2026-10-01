@@ -1,7 +1,7 @@
 import asyncio
 from typing import Literal, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.middleware.rate_limit import client_ip
 from app.routers.auth import current_user
@@ -17,6 +17,23 @@ class Decision(BaseModel):
     status: Literal["approved", "rejected"]
     # Slack: True = post now; False = Timezone Scheduler decides (now in work hours, else next start)
     publish_now: bool = False
+    # Per-artifact approval (workflow 16): approve the meeting but skip the Slack post
+    publish_slack: bool = True
+
+
+class ActionItemEdit(BaseModel):
+    description: str = Field(min_length=1, max_length=500)
+    assignee: str = Field("", max_length=100)
+    due_date: str = Field("", max_length=50)
+    priority: Literal["high", "medium", "low"] = "medium"
+    # Evidence from the original analysis is kept as-is; new items have none.
+    citation_start: float = 0.0
+    citation_end: float = 0.0
+    citation_text: str = Field("", max_length=2000)
+
+
+class ActionItemsEdit(BaseModel):
+    items: list[ActionItemEdit] = Field(max_length=50)
 
 
 class PublishRequest(BaseModel):
@@ -40,12 +57,25 @@ async def decide(job_id: str, decision: Decision, request: Request, user: Option
     title = await asyncio.to_thread(request.app.state.workspace.title, job_id)
     await _audit(request, "approve" if decision.status == "approved" else "reject", username, job_id=job_id, title=title)
     result = {"status": decision.status}
-    if decision.status == "approved" and slack_enabled():
+    if decision.status == "approved" and decision.publish_slack and slack_enabled():
         job = await asyncio.to_thread(request.app.state.workspace.get, job_id)
         result["publish"] = await publish_job(request.app.state.workspace, request.app.state.audit,
                                               request.app.state.storage, job,
                                               now=decision.publish_now, requested_by=username)
     return result
+
+
+@router.put("/jobs/{job_id}/action-items")
+async def edit_action_items(job_id: str, body: ActionItemsEdit, request: Request,
+                            user: Optional[User] = Depends(current_user)):
+    """Workflow 15 — fix descriptions, owners, due dates and priorities before approval."""
+    items = [item.model_dump() for item in body.items]
+    if not await asyncio.to_thread(request.app.state.workspace.update_action_items, job_id, items):
+        raise HTTPException(409, "검토 대기 중인 회의만 수정할 수 있습니다.")
+    title = await asyncio.to_thread(request.app.state.workspace.title, job_id)
+    await _audit(request, "edit", user.username if user else None, job_id=job_id, title=title,
+                 detail=f"할 일 {len(items)}개로 수정")
+    return {"action_items": items}
 
 
 @router.post("/jobs/{job_id}/retry")
