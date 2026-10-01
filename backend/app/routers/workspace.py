@@ -7,12 +7,24 @@ from app.middleware.rate_limit import client_ip
 from app.routers.auth import current_user
 from app.services.accounts import User
 from app.services.retention import delete_job
+from app.services.slack_publish import publish_job, slack_enabled
 from app.services.workspace import JobBusyError
 
 router = APIRouter(prefix="/workspace", dependencies=[Depends(current_user)])
 
 class Decision(BaseModel):
     status: Literal["approved", "rejected"]
+    # Slack: True = post now; False = Timezone Scheduler decides (now in work hours, else next start)
+    publish_now: bool = False
+
+
+class PublishRequest(BaseModel):
+    now: bool = True
+
+
+@router.get("/config")
+async def config():
+    return {"slackPublishing": slack_enabled()}
 
 @router.get("/jobs")
 async def jobs(request: Request):
@@ -26,7 +38,27 @@ async def decide(job_id: str, decision: Decision, request: Request, user: Option
         raise HTTPException(409, "검토 가능한 회의가 없거나 이미 처리되었습니다.")
     title = await asyncio.to_thread(request.app.state.workspace.title, job_id)
     await _audit(request, "approve" if decision.status == "approved" else "reject", username, job_id=job_id, title=title)
-    return {"status": decision.status}
+    result = {"status": decision.status}
+    if decision.status == "approved" and slack_enabled():
+        job = await asyncio.to_thread(request.app.state.workspace.get, job_id)
+        result["publish"] = await publish_job(request.app.state.workspace, request.app.state.audit,
+                                              request.app.state.storage, job,
+                                              now=decision.publish_now, requested_by=username)
+    return result
+
+
+@router.post("/jobs/{job_id}/publish")
+async def publish(job_id: str, body: PublishRequest, request: Request, user: Optional[User] = Depends(current_user)):
+    """(Re)publish an approved meeting — e.g. after a failure or a restart dropped the schedule."""
+    if not slack_enabled():
+        raise HTTPException(409, "Slack 게시가 설정되지 않았습니다. 관리자에게 SLACK_BOT_TOKEN 설정을 요청하세요.")
+    job = await asyncio.to_thread(request.app.state.workspace.get, job_id)
+    if job is None or job["status"] != "approved":
+        raise HTTPException(409, "승인된 회의만 게시할 수 있습니다.")
+    if job.get("publish_status") in ("queued", "scheduled"):
+        raise HTTPException(409, "이미 게시 대기 중입니다.")
+    return await publish_job(request.app.state.workspace, request.app.state.audit, request.app.state.storage,
+                             job, now=body.now, requested_by=user.username if user else None)
 
 
 @router.delete("/jobs/{job_id}")
