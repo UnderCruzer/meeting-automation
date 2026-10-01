@@ -3,7 +3,21 @@
 export type ActionItem = {
   description: string; assignee: string; due_date: string; priority?: "high" | "medium" | "low";
   citation_start?: number; citation_end?: number; citation_text: string;
+  /** Resolved by the server from due_date (ISO date) — null when the text isn't a date. */
+  due?: string | null;
+  done?: boolean; done_by?: string | null; done_at?: string | null;
 };
+
+/** D-day label and tone for a resolved due date, relative to today (local). */
+export function dueState(due?: string | null, done?: boolean): { label: string; tone: string } | null {
+  if (!due || done) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((new Date(`${due}T00:00:00`).getTime() - today.getTime()) / 86_400_000);
+  if (days < 0) return { label: `${-days}일 지남`, tone: "badge-danger" };
+  if (days === 0) return { label: "오늘", tone: "badge-warning" };
+  if (days === 1) return { label: "내일", tone: "badge-accent" };
+  return { label: `D-${days}`, tone: "" };
+}
 
 export type Job = {
   id: string; title: string; status: "processing" | "review" | "approved" | "rejected" | "failed";
