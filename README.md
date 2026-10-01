@@ -33,6 +33,7 @@ Docker Space는 현재 PRO 구독이 필요합니다. 사용할 경우 `deploy/c
 ### 보안 설정
 
 - **인증:** 개인 계정 + 세션 로그인. 비밀번호는 scrypt 해시, 세션 토큰은 HttpOnly·SameSite=Lax 쿠키(HTTPS에서 Secure)로만 전달되고 서버에는 해시만 저장됩니다(기본 12시간, `SESSION_TTL_HOURS`). 관리자는 사용자 추가·비활성화·역할 변경·비밀번호 재설정을 할 수 있고, 비활성화·재설정 시 해당 사용자의 세션이 즉시 끊깁니다. 로그인 실패는 IP당 15분 내 `AUTH_MAX_FAILURES`(기본 20)회, 사용자 이름당 5회로 제한합니다. 이전 `WORKSPACE_PASSWORD`만 설정된 배포는 첫 실행 때 `workspace` 관리자 계정으로 옮겨집니다.
+- **감사 기록:** 로그인·로그인 실패·로그아웃·비밀번호 변경·사용자 추가/변경·업로드·승인·거절·삭제·보존 기간 만료 삭제를 시각·사용자·IP와 함께 남깁니다. 관리자 **사용자 관리** 화면에서 최근 기록을 볼 수 있고, 회의를 삭제해도 기록(제목만)은 남습니다. 회의 상세에는 업로드한 사람과 승인·거절한 사람이 표시됩니다.
 - **CSRF:** 세션 쿠키는 SameSite=Lax이고, 추가로 상태를 바꾸는 요청은 `Sec-Fetch-Site`/`Origin`이 같은 출처일 때만 허용합니다.
 - **보안 헤더:** CSP(`frame-ancestors 'none'`), `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`(마이크만 허용), HSTS. `X-Powered-By`와 이미지 최적화 엔드포인트는 끕니다.
 - **요청 제한:** 업로드는 실제 클라이언트 IP 기준으로 제한합니다. 백엔드는 API 키가 맞는 내부 요청의 `X-Client-IP`만 신뢰합니다.
