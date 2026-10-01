@@ -13,7 +13,9 @@ on our server; `unmask` restores names in results shown to signed-in users.
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
+import aiofiles
 from pydantic import BaseModel
 
 # Two-syllable surnames first so the alternation prefers them.
@@ -102,3 +104,20 @@ def unmask_model(model: BaseModel, tokens: dict[str, str]) -> BaseModel:
         return model
     restored = unmask_text(json.dumps(model.model_dump(), ensure_ascii=False), tokens)
     return type(model).model_validate(json.loads(restored))
+
+
+async def save_name_map(tokens: dict[str, str], file_key: str, base_dir: Path) -> None:
+    """Persist token -> name next to the job so Slack-mode consumers can restore names."""
+    if not tokens:
+        return
+    path = base_dir / (file_key[:-4] + ".names.json")
+    async with aiofiles.open(path, "w", encoding="utf-8") as f:
+        await f.write(json.dumps(tokens, ensure_ascii=False))
+
+
+def load_name_map(analysis_path: Path) -> dict[str, str]:
+    path = analysis_path.with_name(analysis_path.name.replace(".analysis.json", ".names.json"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
