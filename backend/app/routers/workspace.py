@@ -10,7 +10,7 @@ from app.routers.upload import retry_analysis
 from app.services.accounts import User
 from app.services.retention import delete_job
 from app.services.slack_publish import publish_job, slack_enabled
-from app.services import briefing
+from app.services import briefing, quality
 from app.services.workspace import JobBusyError
 from app.services.due_dates import team_timezone
 
@@ -50,6 +50,50 @@ async def config():
 
 class BriefingRequest(BaseModel):
     kind: Literal["morning", "weekly"] = "morning"
+
+
+class FeedbackBody(BaseModel):
+    rating: Literal["good", "bad"]
+    categories: list[Literal["summary_missing", "action_missing", "owner_wrong", "citation_wrong", "other"]] = Field(
+        default_factory=list, max_length=5)
+    note: str = Field("", max_length=1000)
+
+
+@router.get("/jobs/{job_id}/feedback")
+async def get_feedback(job_id: str, request: Request, user: Optional[User] = Depends(current_user)):
+    rows = await asyncio.to_thread(request.app.state.workspace.feedback_for, job_id)
+    me = user.username if user else None
+    mine = next((r for r in rows if r["username"] == me), None)
+    return {"mine": mine and {k: mine[k] for k in ("rating", "categories", "note")},
+            "good": sum(r["rating"] == "good" for r in rows), "bad": sum(r["rating"] == "bad" for r in rows)}
+
+
+@router.post("/jobs/{job_id}/feedback")
+async def give_feedback(job_id: str, body: FeedbackBody, request: Request, user: Optional[User] = Depends(current_user)):
+    """Workflow 22 — was the summary right? Feeds the quality metrics and alerts."""
+    username = user.username if user else "anonymous"
+    ok = await asyncio.to_thread(request.app.state.workspace.save_feedback, job_id, username, body.rating,
+                                 sorted(set(body.categories)) if body.rating == "bad" else [], body.note.strip())
+    if not ok:
+        raise HTTPException(409, "분석이 끝난 회의에만 피드백을 남길 수 있습니다.")
+    title = await asyncio.to_thread(request.app.state.workspace.title, job_id)
+    await _audit(request, "feedback", username, job_id=job_id, title=title,
+                 detail="정확" if body.rating == "good" else "부정확: " + ", ".join(
+                     quality.FEEDBACK_CATEGORIES[c] for c in sorted(set(body.categories))))
+    return {"saved": True}
+
+
+@router.get("/metrics")
+async def metrics(request: Request, days: int = 7, _: User = Depends(require_admin)):
+    if days not in (7, 30):
+        raise HTTPException(422, "기간은 7일 또는 30일입니다.")
+    state = request.app.state
+    today = datetime.now(team_timezone()).date()
+    window = await quality.metrics_for(state.workspace, state.audit, days, today)
+    day = await quality.metrics_for(state.workspace, state.audit, 1, today)
+    week = window if days == 7 else await quality.metrics_for(state.workspace, state.audit, 7, today)
+    return {"days": days, "metrics": window, "alerts": quality.detect_anomalies(day, week),
+            "alert_channel": bool(quality.alert_channel())}
 
 
 @router.get("/briefing")

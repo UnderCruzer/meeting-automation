@@ -13,6 +13,7 @@ from collections import Counter
 from datetime import date, datetime, time, timedelta
 
 from app.services.due_dates import local_date, team_timezone
+from app.services.quality import run_quality_checks
 from app.services.slack_publish import slack_enabled
 from app.services.write_queue import WriteTask, enqueue
 
@@ -187,16 +188,27 @@ def briefing_enabled() -> bool:
     return slack_enabled() and os.getenv("BRIEFING_ENABLED", "true").lower() not in ("0", "false", "no")
 
 
+_QUALITY_CHECK_SECONDS = 60 * 60
+
+
 async def run_briefing_loop(workspace, audit, storage) -> None:
     """Check every minute; each briefing goes out once per day even with several restarts/instances.
-    If the server slept through BRIEFING_TIME (free hosting), it catches up until noon."""
+    If the server slept through BRIEFING_TIME (free hosting), it catches up until noon.
+    Quality anomaly checks (workflow 22) run hourly; the weekly quality report rides on Monday's slot."""
+    last_quality_check = 0.0
+    loop = asyncio.get_running_loop()
     while True:
         try:
-            if briefing_enabled():
+            if slack_enabled():
                 now = datetime.now(team_timezone())
-                for kind in due_briefings(now):
-                    if await asyncio.to_thread(workspace.claim_briefing, kind, now.date().isoformat()):
-                        await send_briefing(kind, workspace, audit, storage, now.date())
+                due = due_briefings(now)
+                if briefing_enabled():
+                    for kind in due:
+                        if await asyncio.to_thread(workspace.claim_briefing, kind, now.date().isoformat()):
+                            await send_briefing(kind, workspace, audit, storage, now.date())
+                if loop.time() - last_quality_check >= _QUALITY_CHECK_SECONDS or "weekly" in due:
+                    last_quality_check = loop.time()
+                    await run_quality_checks(workspace, audit, storage, now.date(), weekly="weekly" in due)
         except Exception:
             logger.exception("[Briefing] Scheduler tick failed")
         await asyncio.sleep(_CHECK_SECONDS)

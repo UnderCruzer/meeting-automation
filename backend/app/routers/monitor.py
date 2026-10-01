@@ -1,23 +1,23 @@
 """
-Monitoring & Feedback endpoints — Issue #22
+Monitoring & Feedback endpoints — Issue #22, rebuilt in #84 (internal / Slack-mode callers)
 
-POST /monitor/feedback      — Slack 피드백 버튼에서 수신
-GET  /monitor/metrics       — 메트릭 조회 (since_hours 파라미터)
-POST /monitor/check         — 이상 탐지 즉시 실행
-POST /monitor/weekly-report — 주간 리포트 즉시 발송
+POST /monitor/feedback      — feedback from a Slack button (stored like web feedback)
+GET  /monitor/metrics       — quality metrics for the last `days` (1–30)
+POST /monitor/check         — run anomaly checks now (alerts go to MONITOR_ALERT_CHANNEL)
+POST /monitor/weekly-report — send the weekly quality report now
+
+The scheduled checks run inside the backend (services/briefing.py → services/quality.py).
 """
+import asyncio
 import logging
+from datetime import datetime
+from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
-from app.services.monitoring import (
-    check_anomalies,
-    compute_metrics,
-    save_feedback,
-    send_weekly_report,
-)
-from datetime import datetime, timedelta, timezone
+from app.services import quality
+from app.services.due_dates import team_timezone
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/monitor")
@@ -26,29 +26,39 @@ router = APIRouter(prefix="/monitor")
 class FeedbackRequest(BaseModel):
     job_id: str
     user_id: str
-    rating: str          # "good" | "bad" | "partial"
-    comment: str = ""
+    rating: Literal["good", "bad"]
+    comment: str = Field("", max_length=1000)
 
 
 @router.post("/feedback")
-async def receive_feedback(req: FeedbackRequest):
-    save_feedback(req.job_id, req.user_id, req.rating, req.comment)
+async def receive_feedback(req: FeedbackRequest, request: Request):
+    ok = await asyncio.to_thread(request.app.state.workspace.save_feedback, req.job_id, f"slack:{req.user_id}",
+                                 req.rating, [], req.comment.strip())
+    if not ok:
+        raise HTTPException(409, "분석이 끝난 회의에만 피드백을 남길 수 있습니다.")
     return {"saved": True, "job_id": req.job_id, "rating": req.rating}
 
 
 @router.get("/metrics")
-async def get_metrics(since_hours: int = Query(default=24, ge=1, le=720)):
-    since = datetime.now(timezone.utc) - timedelta(hours=since_hours)
-    return compute_metrics(since)
+async def get_metrics(request: Request, days: int = Query(default=7, ge=1, le=30)):
+    today = datetime.now(team_timezone()).date()
+    return await quality.metrics_for(request.app.state.workspace, request.app.state.audit, days, today)
 
 
 @router.post("/check")
-async def run_anomaly_check(background_tasks: BackgroundTasks, since_hours: int = Query(default=1, ge=1)):
-    background_tasks.add_task(check_anomalies, since_hours)
-    return {"triggered": "anomaly_check", "since_hours": since_hours}
+async def run_anomaly_check(request: Request):
+    state = request.app.state
+    alerts = await quality.run_quality_checks(state.workspace, state.audit, state.storage,
+                                              datetime.now(team_timezone()).date(), weekly=False)
+    return {"alerts": alerts, "alert_channel": bool(quality.alert_channel())}
 
 
 @router.post("/weekly-report")
-async def trigger_weekly_report(background_tasks: BackgroundTasks):
-    background_tasks.add_task(send_weekly_report)
-    return {"triggered": "weekly_report"}
+async def trigger_weekly_report(request: Request):
+    if not quality.alert_channel():
+        raise HTTPException(409, "MONITOR_ALERT_CHANNEL이 설정되지 않았습니다.")
+    state = request.app.state
+    today = datetime.now(team_timezone()).date()
+    metrics = await quality.metrics_for(state.workspace, state.audit, 7, today)
+    await quality.post_admin(quality.weekly_report_text(metrics, today), "weekly-manual", state.storage)
+    return {"queued": True}

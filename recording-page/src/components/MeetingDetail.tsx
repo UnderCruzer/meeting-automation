@@ -4,6 +4,7 @@ import type { Job } from "@/lib/workspace";
 import { FAILURE_REASONS, SLACK_HINTS, api, displayActor, dueState, formatWhen, jsonInit } from "@/lib/workspace";
 import StatusBadge, { PriorityBadge } from "@/components/StatusBadge";
 import ActionItemsEditor from "@/components/ActionItemsEditor";
+import FeedbackCard from "@/components/FeedbackCard";
 import { useToast } from "@/components/Toast";
 
 export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack }: {
@@ -94,6 +95,8 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
         <p className="subtle">근거는 키워드로 연결한 후보이며, 개인정보 패턴은 가려져 표시됩니다.</p>
       </section>
     </>}
+
+    {summary && <FeedbackCard key={`fb-${job.id}`} jobId={job.id} />}
 
     {job.status === "review" && <div className="actionbar">
       {slack ? <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 240 }}>
