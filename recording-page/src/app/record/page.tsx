@@ -8,6 +8,7 @@ import { useWaveform } from "@/hooks/useWaveform";
 import { MeetingInfo } from "@/components/MeetingInfo";
 import { RecordButton } from "@/components/RecordButton";
 import { formatTime } from "@/lib/meetingTime";
+import { decodeGrant } from "@/lib/recordingGrant";
 
 interface MeetingMeta {
   id: string;
@@ -31,9 +32,14 @@ function RecordPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadDone, setUploadDone] = useState(false);
 
+  // Signed link from the Slack DM (verified by the server before this page loads).
+  const grant = params?.get("grant") ?? null;
+
   const meta = useMemo<MeetingMeta | null>(() => {
     // Typed nullable once a pages/ directory exists; always set under the App Router.
     if (!params) return null;
+    const signed = grant ? decodeGrant(grant) : null;
+    if (signed) return { id: signed.m, title: signed.t || "(제목 없음)", startTime: signed.s, endTime: signed.e, location: signed.l };
     const id = params.get("meetingId");
     const startTime = params.get("startTime");
     const endTime = params.get("endTime");
@@ -45,7 +51,7 @@ function RecordPage() {
       endTime,
       location: params.get("location") ?? "",
     };
-  }, [params]);
+  }, [params, grant]);
 
   const { status, error, audioBlob, stream, requestMic, startRecording, stopRecording } = useRecorder();
   const startedRef = useRef(false);
@@ -75,17 +81,17 @@ function RecordPage() {
 
   useEffect(() => {
     if (status !== "stopped" || !audioBlob || !meta) return;
-    uploadAudio(audioBlob, meta)
+    uploadAudio(audioBlob, meta, grant)
       .then(() => setUploadDone(true))
       .catch((err) => {
         setUploadError(err instanceof Error ? err.message : "업로드 실패");
       });
-  }, [status, audioBlob, meta]);
+  }, [status, audioBlob, meta, grant]);
 
   if (!meta) {
     return (
       <main style={styles.main}>
-        <p style={{ color: "#fa5252" }}>잘못된 접근입니다. Slack DM의 링크를 통해 접속해주세요.</p>
+        <p style={{ color: "#fa5252" }}>잘못된 접근이거나 만료된 링크입니다. Slack DM의 최신 링크로 접속해주세요.</p>
       </main>
     );
   }
@@ -151,7 +157,7 @@ function RecordPage() {
   );
 }
 
-async function uploadAudio(blob: Blob, meta: MeetingMeta): Promise<void> {
+async function uploadAudio(blob: Blob, meta: MeetingMeta, grant: string | null): Promise<void> {
   const form = new FormData();
   form.append("audio", blob, "recording.wav");
   form.append("metadata", JSON.stringify({
@@ -167,7 +173,9 @@ async function uploadAudio(blob: Blob, meta: MeetingMeta): Promise<void> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     let res: Response;
     try {
-      res = await fetch("/api/upload", { method: "POST", body: form });
+      res = await fetch("/api/upload", {
+        method: "POST", body: form, headers: grant ? { "X-Recording-Grant": grant } : undefined,
+      });
     } catch (networkErr) {
       // Network failure (offline, DNS, timeout) — always retry
       if (attempt === MAX_RETRIES) throw networkErr;
