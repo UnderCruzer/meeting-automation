@@ -24,6 +24,7 @@ from app.storage.local import LocalStorage
 from app.services.write_queue import start_worker
 from app.services import llm
 from app.services.retention import run_purge_loop
+from app.services.briefing import run_briefing_loop
 
 load_dotenv()
 # Without this, app INFO logs (publish success, retries, pipeline progress) never reach the console.
@@ -48,9 +49,11 @@ async def lifespan(app: FastAPI):
     # Start write queue worker as background task
     worker_task = asyncio.create_task(start_worker())
     purge_task = asyncio.create_task(run_purge_loop(app.state.workspace, app.state.storage, app.state.audit))
+    briefing_task = asyncio.create_task(run_briefing_loop(app.state.workspace, app.state.audit, app.state.storage))
     yield
     worker_task.cancel()
     purge_task.cancel()
+    briefing_task.cancel()
 
 
 def bootstrap_admin(accounts: Accounts) -> None:

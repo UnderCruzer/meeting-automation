@@ -1,15 +1,18 @@
 import asyncio
+from datetime import datetime
 from typing import Literal, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.middleware.rate_limit import client_ip
-from app.routers.auth import current_user
+from app.routers.auth import current_user, require_admin
 from app.routers.upload import retry_analysis
 from app.services.accounts import User
 from app.services.retention import delete_job
 from app.services.slack_publish import publish_job, slack_enabled
+from app.services import briefing
 from app.services.workspace import JobBusyError
+from app.services.due_dates import team_timezone
 
 router = APIRouter(prefix="/workspace", dependencies=[Depends(current_user)])
 
@@ -43,6 +46,33 @@ class PublishRequest(BaseModel):
 @router.get("/config")
 async def config():
     return {"slackPublishing": slack_enabled()}
+
+
+class BriefingRequest(BaseModel):
+    kind: Literal["morning", "weekly"] = "morning"
+
+
+@router.get("/briefing")
+async def preview_briefing(request: Request, kind: Literal["morning", "weekly"] = "morning",
+                           _: User = Depends(require_admin)):
+    """Admin preview of what the scheduled briefing would post today."""
+    today = datetime.now(team_timezone()).date()
+    jobs = await asyncio.to_thread(request.app.state.workspace.list_all)
+    build = briefing.build_weekly_digest if kind == "weekly" else briefing.build_morning_brief
+    return {"kind": kind, "text": build(jobs, today), "enabled": briefing.briefing_enabled(),
+            "time": briefing.briefing_time().strftime("%H:%M"), "timezone": str(team_timezone())}
+
+
+@router.post("/briefing")
+async def send_briefing_now(body: BriefingRequest, request: Request, user: User = Depends(require_admin)):
+    if not slack_enabled():
+        raise HTTPException(409, "Slack 게시가 설정되지 않았습니다.")
+    sent = await briefing.send_briefing(body.kind, request.app.state.workspace, request.app.state.audit,
+                                        request.app.state.storage)
+    if not sent:
+        raise HTTPException(409, "보낼 내용이 없습니다.")
+    await _audit(request, "briefing", user.username, detail=f"{body.kind} 수동 발송")
+    return {"queued": True}
 
 @router.get("/jobs")
 async def jobs(request: Request):
