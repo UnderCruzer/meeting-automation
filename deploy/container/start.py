@@ -44,7 +44,7 @@ def main():
             stopped.wait(1)
         web_env = {key: value for key, value in os.environ.items()
                    if key not in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY",
-                                  "ADMIN_PASSWORD", "WORKSPACE_PASSWORD")}
+                                  "ADMIN_PASSWORD", "WORKSPACE_PASSWORD", "SLACK_BOT_TOKEN")}
         # Render/Cloud Run inject PORT; Hugging Face uses the fixed app_port 7860.
         web_env.update(PORT=os.environ.get("PORT", "7860"), HOSTNAME="0.0.0.0")
         children.append(subprocess.Popen(["node", "server.js"], cwd="/app/frontend", env=web_env))
