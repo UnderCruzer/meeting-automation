@@ -10,6 +10,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from app.middleware.rate_limit import client_ip
 from app.services.accounts import AccountError, User
 
 router = APIRouter(prefix="/auth")
@@ -32,6 +33,12 @@ def _record_failure(username: str) -> None:
     with _failures_lock:
         count, reset_at = _failures.get(username, (0, 0.0))
         _failures[username] = (count + 1, reset_at) if reset_at > now else (1, now + _WINDOW)
+
+
+async def _audit(request: Request, action: str, username: Optional[str], detail: Optional[str] = None) -> None:
+    audit = getattr(request.app.state, "audit", None)
+    if audit is not None:
+        await asyncio.to_thread(audit.record, action, username, detail=detail, ip=client_ip(request))
 
 
 def auth_required() -> bool:
@@ -89,14 +96,20 @@ async def login(body: LoginBody, request: Request):
     user = await asyncio.to_thread(accounts.authenticate, name, body.password)
     if user is None:
         _record_failure(name)
+        await _audit(request, "login_failed", name[:32])
         raise HTTPException(401, "사용자 이름 또는 비밀번호가 맞지 않습니다.")
     token = await asyncio.to_thread(accounts.start_session, user)
+    await _audit(request, "login", user.username)
     return {"token": token, "user": user.public(), "maxAge": accounts.session_hours * 3600}
 
 
 @router.post("/logout")
 async def logout(request: Request):
-    await asyncio.to_thread(request.app.state.accounts.end_session, session_token(request))
+    accounts = request.app.state.accounts
+    user = await asyncio.to_thread(accounts.session_user, session_token(request))
+    await asyncio.to_thread(accounts.end_session, session_token(request))
+    if user:
+        await _audit(request, "logout", user.username)
     return {"ok": True}
 
 
@@ -114,6 +127,7 @@ async def change_password(body: PasswordBody, request: Request, user: Optional[U
                                 session_token(request))
     except AccountError as exc:
         raise HTTPException(400, str(exc))
+    await _audit(request, "password_change", user.username)
     return {"ok": True}
 
 
@@ -124,11 +138,12 @@ async def list_users(request: Request, _: User = Depends(require_admin)):
 
 
 @router.post("/users")
-async def create_user(body: NewUserBody, request: Request, _: User = Depends(require_admin)):
+async def create_user(body: NewUserBody, request: Request, actor: User = Depends(require_admin)):
     try:
         user = await asyncio.to_thread(request.app.state.accounts.create, body.username, body.password, body.role)
     except AccountError as exc:
         raise HTTPException(400, str(exc))
+    await _audit(request, "user_create", actor.username, f"{user.username} ({user.role})")
     return user.public()
 
 
@@ -141,4 +156,12 @@ async def update_user(user_id: int, body: UpdateUserBody, request: Request, acto
         )
     except AccountError as exc:
         raise HTTPException(400, str(exc))
+    changes = [f"active={body.active}" if body.active is not None else "",
+               f"role={body.role}" if body.role else "", "password reset" if body.password else ""]
+    await _audit(request, "user_update", actor.username, f"{user.username}: " + ", ".join(c for c in changes if c))
     return user.public()
+
+
+@router.get("/audit")
+async def audit_log(request: Request, limit: int = 200, _: User = Depends(require_admin)):
+    return await asyncio.to_thread(request.app.state.audit.recent, limit)
