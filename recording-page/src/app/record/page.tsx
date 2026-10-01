@@ -21,7 +21,7 @@ interface MeetingMeta {
 // useSearchParams() must be inside a Suspense boundary (Next.js 14 requirement)
 export default function RecordPageWrapper() {
   return (
-    <Suspense fallback={<main style={{ maxWidth: 480, margin: "48px auto", padding: "0 24px", fontFamily: "system-ui, sans-serif" }}><p>로딩 중...</p></main>}>
+    <Suspense fallback={<main className="center-page"><span className="spin" aria-label="로딩 중" /></main>}>
       <RecordPage />
     </Suspense>
   );
@@ -90,22 +90,23 @@ function RecordPage() {
 
   if (!meta) {
     return (
-      <main style={styles.main}>
-        <p style={{ color: "#fa5252" }}>잘못된 접근이거나 만료된 링크입니다. Slack DM의 최신 링크로 접속해주세요.</p>
+      <main className="center-page">
+        <div className="card record-card">
+          <div className="alert alert-danger" role="alert"><div className="alert-body">잘못된 접근이거나 만료된 링크입니다. Slack DM의 최신 링크로 접속해주세요.</div></div>
+        </div>
       </main>
     );
   }
 
   return (
-    <>
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-      `}</style>
-      <main style={styles.main}>
-        <h1 style={styles.heading}>🎙️ 회의 녹음</h1>
+    <main className="center-page">
+      <div className="card record-card">
+        <div className="row">
+          <span className="brand-mark" aria-hidden>◆</span>
+          <h1 style={{ fontSize: 18 }}>회의 녹음</h1>
+          <span className="spacer" />
+          {status === "recording" && <span className="badge badge-danger badge-plain"><span className="rec-dot" aria-hidden />REC</span>}
+        </div>
 
         <MeetingInfo
           title={meta.title}
@@ -114,46 +115,35 @@ function RecordPage() {
           location={meta.location}
         />
 
-        <canvas
-          ref={canvasRef}
-          width={432}
-          height={64}
-          style={styles.waveform}
-          aria-label="오디오 파형"
-        />
+        <canvas ref={canvasRef} width={464} height={72} className="waveform" aria-label="오디오 파형" />
 
-        <div style={styles.statusRow}>
-          {status === "recording" && (
-            <span style={styles.recBadge}>● REC</span>
-          )}
-          {status === "encoding" && (
-            <span style={{ color: "#868e96", fontWeight: 600 }}>WAV 변환 중...</span>
-          )}
+        <div role="status" aria-live="polite">
+          {status === "idle" && <p className="muted">마이크 권한을 허용하면 회의 시작 시각에 자동으로 녹음을 시작하고, 종료 시각에 멈춘 뒤 업로드합니다.</p>}
           {status === "ready" && secondsLeft > 0 && (
-            <span style={styles.countdown}>
-              {formatTime(meta.startTime)} 시작까지 {secondsLeft}초
-            </span>
+            <div className="alert alert-info"><div className="alert-body">{formatTime(meta.startTime)} 시작까지 <strong>{secondsLeft}초</strong> — 이 창을 닫지 마세요.</div></div>
           )}
+          {status === "recording" && <p className="muted">녹음 중입니다. 회의가 끝나면 자동으로 멈추고 업로드합니다.</p>}
+          {status === "encoding" && <p className="muted">녹음을 변환하고 있습니다…</p>}
           {status === "stopped" && !uploadError && !uploadDone && (
-            <span style={{ color: "#868e96", fontWeight: 600 }}>업로드 중...</span>
+            <div className="alert alert-info"><span className="spin" aria-hidden /><div className="alert-body">업로드 중… 창을 닫지 마세요.</div></div>
           )}
           {uploadDone && !uploadError && (
-            <span style={{ color: "#40c057", fontWeight: 600 }}>✅ 업로드 완료</span>
+            <div className="alert alert-success"><div className="alert-body">✅ 업로드 완료. 분석이 끝나면 담당자가 검토 후 공유합니다. 이 창은 닫아도 됩니다.</div></div>
           )}
           {uploadError && (
-            <span style={{ color: "#fa5252", fontWeight: 600 }}>⚠️ 업로드 실패: {uploadError}</span>
+            <div className="alert alert-danger" role="alert"><div className="alert-body">업로드 실패: {uploadError}</div></div>
           )}
         </div>
 
-        {error && <p style={styles.error}>{error}</p>}
+        {error && <div className="alert alert-danger" role="alert"><div className="alert-body">{error}</div></div>}
 
         <RecordButton
           status={status}
           onRequestMic={requestMic}
           onStop={stopRecording}
         />
-      </main>
-    </>
+      </div>
+    </main>
   );
 }
 
@@ -190,34 +180,3 @@ async function uploadAudio(blob: Blob, meta: MeetingMeta, grant: string | null):
     await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
   }
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  main: {
-    maxWidth: 480,
-    margin: "48px auto",
-    padding: "0 24px",
-    fontFamily: "system-ui, sans-serif",
-    color: "#212529",
-  },
-  heading: { fontSize: 24, fontWeight: 700, marginBottom: 24 },
-  waveform: {
-    display: "block",
-    width: "100%",
-    height: 64,
-    borderRadius: 8,
-    background: "#f8f9fa",
-    marginBottom: 16,
-  },
-  statusRow: { minHeight: 32, marginBottom: 20, display: "flex", alignItems: "center" },
-  recBadge: {
-    background: "#fa5252",
-    color: "#fff",
-    padding: "4px 12px",
-    borderRadius: 20,
-    fontSize: 13,
-    fontWeight: 700,
-    animation: "pulse 1.2s infinite",
-  },
-  countdown: { color: "#868e96", fontSize: 14 },
-  error: { color: "#fa5252", fontSize: 14, marginBottom: 12 },
-};

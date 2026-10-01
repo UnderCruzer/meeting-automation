@@ -29,6 +29,7 @@ export function useWaveform(
 
     const buf = new Uint8Array(analyser.frequencyBinCount);
     const canvasCtx = canvas.getContext("2d")!;
+    const liveColor = themeColor(canvas, "--danger", "#fa5252");
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
@@ -37,7 +38,7 @@ export function useWaveform(
       const { width, height } = canvas;
       canvasCtx.clearRect(0, 0, width, height);
       canvasCtx.lineWidth = 2;
-      canvasCtx.strokeStyle = "#fa5252";
+      canvasCtx.strokeStyle = liveColor;
       canvasCtx.beginPath();
 
       const sliceWidth = width / buf.length;
@@ -72,7 +73,7 @@ export function useWaveform(
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         // Draw flat line when idle
         ctx.lineWidth = 1.5;
-        ctx.strokeStyle = "#dee2e6";
+        ctx.strokeStyle = themeColor(canvas, "--border-strong", "#dee2e6");
         ctx.beginPath();
         ctx.moveTo(0, canvas.height / 2);
         ctx.lineTo(canvas.width, canvas.height / 2);
@@ -80,4 +81,9 @@ export function useWaveform(
       }
     }
   }
+}
+
+/** Read a design token so the waveform follows light/dark mode. */
+function themeColor(el: Element, token: string, fallback: string): string {
+  return getComputedStyle(el).getPropertyValue(token).trim() || fallback;
 }

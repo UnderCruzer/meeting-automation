@@ -7,44 +7,12 @@ interface RecordButtonProps {
 }
 
 export function RecordButton({ status, onRequestMic, onStop }: RecordButtonProps) {
-  if (status === "idle") {
-    return (
-      <button style={{ ...styles.btn, background: "#228be6" }} onClick={onRequestMic}>
-        🎙️ 마이크 권한 허용
-      </button>
-    );
-  }
-  if (status === "requesting") {
-    return <button style={{ ...styles.btn, background: "#868e96" }} disabled>권한 요청 중...</button>;
-  }
-  if (status === "ready") {
-    return <button style={{ ...styles.btn, background: "#868e96" }} disabled>⏳ 회의 시작 대기 중...</button>;
-  }
-  if (status === "recording") {
-    return (
-      <button style={{ ...styles.btn, background: "#fa5252" }} onClick={onStop}>
-        ⏹ 녹음 중지
-      </button>
-    );
-  }
-  if (status === "encoding") {
-    return <button style={{ ...styles.btn, background: "#868e96" }} disabled>🔄 WAV 변환 중...</button>;
-  }
-  if (status === "stopped") {
-    return <button style={{ ...styles.btn, background: "#40c057" }} disabled>✅ 녹음 완료</button>;
-  }
+  const cls = "btn btn-lg btn-block";
+  if (status === "idle") return <button className={`${cls} btn-primary`} onClick={onRequestMic}>🎙️ 마이크 권한 허용</button>;
+  if (status === "requesting") return <button className={cls} disabled><span className="spin" aria-hidden />권한 요청 중…</button>;
+  if (status === "ready") return <button className={cls} disabled>⏳ 회의 시작 대기 중…</button>;
+  if (status === "recording") return <button className={`${cls} btn-danger`} onClick={onStop}>⏹ 녹음 중지</button>;
+  if (status === "encoding") return <button className={cls} disabled><span className="spin" aria-hidden />WAV 변환 중…</button>;
+  if (status === "stopped") return <button className={cls} disabled>✅ 녹음 완료</button>;
   return null;
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  btn: {
-    padding: "14px 32px",
-    fontSize: 16,
-    fontWeight: 600,
-    color: "#fff",
-    border: "none",
-    borderRadius: 10,
-    cursor: "pointer",
-    transition: "opacity 0.2s",
-  },
-};
