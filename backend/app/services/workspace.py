@@ -13,6 +13,8 @@ class Workspace:
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, summary TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
             # Added with accounts: who uploaded and who decided (older databases are migrated in place).
+            # One row per briefing per day — makes the daily schedule idempotent (#83).
+            db.execute("CREATE TABLE IF NOT EXISTS briefing_runs (kind TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (kind, day))")
             existing = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
             for column in ("uploaded_by", "decided_by", "decided_at",
                            # Slack publishing (#73): none|queued|scheduled|sent|failed
@@ -84,6 +86,17 @@ class Workspace:
             due = parse_due(item.get("due_date"), meeting_day) if meeting_day else None
             item["due"] = due.isoformat() if due else None
         return job
+
+    def list_all(self, status="approved"):
+        """Every job with `status` (no paging) — for briefings."""
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM jobs WHERE status=? ORDER BY created_at", (status,)).fetchall()
+        return [self._public(row) for row in rows]
+
+    def claim_briefing(self, kind, day):
+        """True only for the first caller per (kind, day)."""
+        with self.connect() as db:
+            return db.execute("INSERT OR IGNORE INTO briefing_runs VALUES (?, ?)", (kind, day)).rowcount == 1
 
     def decide(self, job_id, status, decided_by=None):
         if status not in ("approved", "rejected"):
