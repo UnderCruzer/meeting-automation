@@ -1,0 +1,22 @@
+# Render 무료 인스턴스는 외부 요청이 15분 없으면 잠들어 캘린더 감지(워크플로 1단계)가 멈춥니다.
+# 저장소 변수 KEEPALIVE_URL(예: https://meeting-automation.onrender.com)을 설정한 경우에만 10분마다 깨웁니다.
+# 한 서비스를 계속 켜두면 월 약 744시간으로 무료 750시간 안에 들어갑니다.
+name: Keep deployment awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    if: ${{ vars.KEEPALIVE_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping health check
+        run: curl -fsS --max-time 90 --retry 2 --retry-delay 10 "${KEEPALIVE_URL%/}/api/healthz"
+        env:
+          KEEPALIVE_URL: ${{ vars.KEEPALIVE_URL }}
