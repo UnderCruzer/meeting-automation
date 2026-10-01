@@ -28,7 +28,13 @@ const httpApp = express();
 registerAuthRoutes(httpApp);
 
 (async () => {
-  await app.start();
+  try {
+    await app.start();
+  } catch (err) {
+    // Exit so the supervisor restarts with backoff instead of idling in a broken state.
+    console.error("[App] Slack 연결 실패 — SLACK_BOT_TOKEN(xoxb-)·SLACK_APP_TOKEN(xapp-, connections:write)을 확인하세요:", err.data?.error || err.message);
+    process.exit(1);
+  }
   console.log("[App] Slack bot connected via Socket Mode");
 
   const port = process.env.PORT || 3000;
