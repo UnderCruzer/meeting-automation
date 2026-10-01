@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import os
+import re
 import threading
 import time
+from dataclasses import dataclass
+from urllib.parse import unquote
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -56,6 +60,34 @@ async def current_user(request: Request) -> Optional[User]:
     if user is None and auth_required():
         raise HTTPException(401, "로그인이 필요합니다.")
     return user
+
+
+@dataclass
+class Uploader:
+    username: Optional[str]
+    meeting_lock: Optional[str] = None  # set for signed Slack links: only this meeting
+
+
+_SLACK_ACTOR = re.compile(r"slack:[A-Z0-9]{2,30}")
+
+
+def _trusted_proxy(request: Request) -> bool:
+    api_key = os.getenv("BACKEND_API_KEY", "")
+    provided = request.headers.get("X-API-Key", "")
+    return bool(api_key) and hmac.compare_digest(provided.encode(), api_key.encode())
+
+
+async def upload_actor(request: Request) -> Uploader:
+    """Who is uploading: a signed-in user, or a Slack user whose signed recording link the web
+    server verified (X-Upload-Actor, trusted only with the API key and bound to one meeting)."""
+    actor = request.headers.get("X-Upload-Actor", "")
+    if actor:
+        meeting = unquote(request.headers.get("X-Upload-Meeting", ""))
+        if not (_trusted_proxy(request) and _SLACK_ACTOR.fullmatch(actor) and meeting):
+            raise HTTPException(401, "로그인이 필요합니다.")
+        return Uploader(actor, meeting)
+    user = await current_user(request)
+    return Uploader(user.username if user else None)
 
 
 async def require_admin(request: Request) -> User:

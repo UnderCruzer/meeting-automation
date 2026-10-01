@@ -39,6 +39,9 @@ services:
         sync: false
       - key: DEFAULT_TIMEZONE
         value: Asia/Seoul
+      # 워크플로 4: Slack DM 녹음 링크 서명 키 (봇과 웹이 공유) — 자동 생성
+      - key: RECORDING_LINK_SECRET
+        generateValue: true
       # 백엔드 내부 인증 키 — 사람이 쓸 일 없음, Render가 임의 값 생성
       - key: BACKEND_API_KEY
         generateValue: true

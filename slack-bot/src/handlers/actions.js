@@ -1,5 +1,6 @@
 const { approve, skip, isApproved, getMeeting } = require("../services/sessionStore");
 const https = require("https");
+const { signGrant } = require("../services/recordingGrant");
 const http = require("http");
 
 /**
@@ -92,14 +93,22 @@ function registerActionHandlers(app) {
 async function sendRecordingLink(client, userId, meetingId) {
   const base = process.env.RECORDING_PAGE_URL || "http://localhost:3001";
   const meeting = getMeeting(meetingId);
-  const params = new URLSearchParams({ meetingId });
-  if (meeting) {
-    params.set("title", meeting.title ?? "");
-    params.set("startTime", meeting.startTime ?? "");
-    params.set("endTime", meeting.endTime ?? "");
-    params.set("location", meeting.location ?? "");
+  const secret = process.env.RECORDING_LINK_SECRET;
+  let url;
+  if (secret && meeting) {
+    // Signed, meeting-bound link: works without a web login, expires after the meeting.
+    url = `${base}/record?${new URLSearchParams({ grant: signGrant(meeting, userId, secret) })}`;
+  } else {
+    console.warn("[Action] RECORDING_LINK_SECRET not set — recording link will require a web login");
+    const params = new URLSearchParams({ meetingId });
+    if (meeting) {
+      params.set("title", meeting.title ?? "");
+      params.set("startTime", meeting.startTime ?? "");
+      params.set("endTime", meeting.endTime ?? "");
+      params.set("location", meeting.location ?? "");
+    }
+    url = `${base}/record?${params}`;
   }
-  const url = `${base}/record?${params}`;
 
   await client.chat.postMessage({
     channel: userId,

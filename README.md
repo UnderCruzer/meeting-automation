@@ -40,6 +40,8 @@ Docker Space는 현재 PRO 구독이 필요합니다. 사용할 경우 `deploy/c
 3. 참석자 이메일이 Slack 계정 이메일과 같아야 DM이 갑니다. 장소가 있는 회의만 대상이며, 온라인 회의도 포함하려면 `CALENDAR_INCLUDE_ONLINE=true`.
 4. **무료 플랜 절전 방지**: Render 무료 인스턴스는 15분간 요청이 없으면 잠들어 캘린더 감지가 멈춥니다. GitHub 저장소 **Settings → Secrets and variables → Actions → Variables**에 `KEEPALIVE_URL`(배포 주소)을 추가하면 `.github/workflows/keepalive.yml`이 10분마다 깨웁니다(한 서비스 상시 실행 ≈ 월 744시간, 무료 750시간 이내).
 
+**녹음 링크(워크플로 4~6)**: DM의 녹음 링크는 회의·Slack 사용자·만료 시각(회의 종료 2시간 후)을 `RECORDING_LINK_SECRET`으로 서명한 링크입니다. 웹 로그인 없이 **그 회의의 녹음 페이지와 업로드만** 허용하고, 다른 회의로 바꾸거나 위조·만료된 링크는 거부합니다. 업로드한 사람은 `slack:<사용자ID>`로 회의 목록과 감사 기록에 남습니다. 회의 시작 시각이 되면 자동으로 녹음을 시작하고 종료 시각에 멈춘 뒤 업로드합니다.
+
 Microsoft 365 계정은 기존 Graph 연동(`AZURE_*`)도 계속 지원하지만 로그인 콜백이 내부 포트라 배포 환경에서는 ICS 방식을 권장합니다.
 
 ### Slack 채널 게시 (워크플로 16→17→18→19)

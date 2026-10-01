@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { clientIp } from "@/lib/clientIp";
 import { check } from "@/lib/gate";
 import { backendHeaders, backendUrl } from "@/lib/session";
+import { verifyGrant } from "@/lib/recordingGrant";
 import { SECURITY_HEADERS } from "@/lib/security";
 
 /**
@@ -28,7 +29,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     else if (Array.isArray(value)) headers.set(name, value.join(", "));
 
   const gate = await check(req.method ?? "GET", headers);
-  if ("rejection" in gate) return send(res, gate.rejection.status, gate.rejection.message, gate.rejection.headers);
+  // No web session: a signed Slack recording link may still upload for its own meeting.
+  const grant = "rejection" in gate && gate.rejection.status === 401
+    ? await verifyGrant(headers.get("x-recording-grant")) : null;
+  if ("rejection" in gate && !grant)
+    return send(res, gate.rejection.status, gate.rejection.message, gate.rejection.headers);
   if (req.method !== "POST") return send(res, 405, "Method Not Allowed", { Allow: "POST" });
 
   const contentType = headers.get("content-type") ?? "";
@@ -36,11 +41,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return send(res, 415, JSON.stringify({ detail: "multipart/form-data required" }), { "Content-Type": "application/json" });
 
   const target = new URL(backendUrl("/upload"));
-  const forwardHeaders: http.OutgoingHttpHeaders = backendHeaders(gate.token, {
+  const forwardHeaders: http.OutgoingHttpHeaders = backendHeaders("token" in gate ? gate.token : "", {
     "Content-Type": contentType,
     // Backend rate-limits per client; every proxied request would otherwise look like 127.0.0.1.
     "X-Client-IP": clientIp(headers),
   });
+  if (grant) {
+    // Trusted by the backend only together with the API key.
+    forwardHeaders["X-Upload-Actor"] = `slack:${grant.u}`;
+    forwardHeaders["X-Upload-Meeting"] = encodeURIComponent(grant.m);
+  }
   const length = headers.get("content-length");
   if (length) forwardHeaders["Content-Length"] = length;
 
