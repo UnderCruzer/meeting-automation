@@ -78,5 +78,8 @@ jobs:
       - name: Dependency audit
         run: npm audit --omit=dev --audit-level=high
 
+      - name: Unit tests
+        run: npm test
+
       - name: Check syntax
-        run: node --check src/app.js src/handlers/actions.js src/services/scheduler.js src/services/alertStore.js src/services/timezone.js
+        run: node --check src/app.js src/services/calendar/ics.js src/handlers/actions.js src/services/scheduler.js src/services/alertStore.js src/services/timezone.js
