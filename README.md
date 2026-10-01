@@ -6,9 +6,9 @@ Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 
 
 1. `backend/.env`에 분석용 `GEMINI_API_KEY`와 전사용 `GROQ_API_KEY` 또는 `OPENAI_API_KEY`를 설정합니다. Claude를 쓰려면 `LLM_PROVIDER=anthropic`과 `ANTHROPIC_API_KEY`를 설정합니다. 실제 업로드 시 사용 중인 공급자 요금이 발생할 수 있습니다.
    - Gemini **무료 등급은 입력 내용이 Google 제품 개선에 사용될 수 있습니다.** 실제 회의 자료는 결제를 연결한 유료 등급 키를 사용하세요. PII는 마스킹 후 전송되지만 회의 내용 자체는 전송됩니다.
-2. 루트 `.env`에 서로 다른 임의의 긴 값으로 `BACKEND_API_KEY`와 `WORKSPACE_PASSWORD`를 설정합니다. 비밀번호는 ASCII 문자를 사용합니다.
+2. 루트 `.env`에 임의의 긴 값으로 `BACKEND_API_KEY`와, 최초 관리자 비밀번호 `ADMIN_PASSWORD`(10자 이상)를 설정합니다. 관리자 이름은 `ADMIN_USERNAME`(기본 `admin`)입니다. 관리자 계정은 사용자가 한 명도 없을 때만 만들어집니다.
 3. `docker compose -f compose.standalone.yml up --build -d`를 실행합니다.
-4. `http://localhost:3001`에 접속합니다. 사용자 이름은 `workspace`, 비밀번호는 설정한 값입니다.
+4. `http://localhost:3001`에 접속해 관리자 계정으로 로그인합니다. **사용자 관리**에서 팀원 계정을 만들고 초기 비밀번호를 전달합니다(첫 로그인 후 변경 안내).
 5. 참석자 동의를 받은 녹음을 올리고, 분석 완료 후 근거와 품질 경고를 확인하여 승인합니다.
 
 이 구성은 Slack/Jira/Confluence로 발송하지 않습니다. 녹음과 회의 결과, 승인 상태는 `meeting-data` 볼륨에 저장됩니다. 같은 서버에서 재배포해도 볼륨을 유지하면 보존됩니다. 백업 대상에 포함하고 `down -v`는 사용하지 마세요.
@@ -18,8 +18,8 @@ Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/UnderCruzer/meeting-automation)
 
 1. 위 버튼 → Render 로그인(GitHub 연동) → Blueprint(`render.yaml`) 확인
-2. `GEMINI_API_KEY`, `GROQ_API_KEY`만 입력합니다. `BACKEND_API_KEY`와 `WORKSPACE_PASSWORD`는 Render가 임의 값으로 생성합니다.
-3. 배포 완료 후 서비스 **Environment** 탭에서 `WORKSPACE_PASSWORD`를 확인하고, `https://<서비스 이름>.onrender.com`에 사용자 이름 `workspace`로 접속합니다.
+2. `GEMINI_API_KEY`, `GROQ_API_KEY`만 입력합니다. `BACKEND_API_KEY`와 관리자 비밀번호 `ADMIN_PASSWORD`는 Render가 임의 값으로 생성합니다.
+3. 배포 완료 후 서비스 **Environment** 탭에서 `ADMIN_PASSWORD`를 확인하고, `https://<서비스 이름>.onrender.com`에 사용자 이름 `admin`으로 로그인합니다. 로그인 후 비밀번호를 바꾸고 팀원 계정을 만드세요. (무료 플랜은 재시작 시 데이터가 초기화되어 계정도 다시 `ADMIN_PASSWORD`로 만들어집니다.)
 
 - 프런트엔드와 백엔드를 하나의 컨테이너(`deploy/container/Dockerfile`)에서 실행하며, 백엔드는 외부에 노출되지 않습니다. `/api/healthz`만 인증 없이 응답합니다(상태만 반환).
 - main에 머지하면 자동 재배포됩니다.
@@ -32,8 +32,8 @@ Docker Space는 현재 PRO 구독이 필요합니다. 사용할 경우 `deploy/c
 
 ### 보안 설정
 
-- **인증:** 공유 비밀번호(Basic 인증). 같은 IP에서 15분 내 `AUTH_MAX_FAILURES`(기본 20)회 틀리면 429로 잠시 차단됩니다.
-- **CSRF:** Basic 인증 정보는 다른 사이트의 요청에도 자동 첨부되므로, 상태를 바꾸는 요청은 `Sec-Fetch-Site`/`Origin`이 같은 출처일 때만 허용합니다.
+- **인증:** 개인 계정 + 세션 로그인. 비밀번호는 scrypt 해시, 세션 토큰은 HttpOnly·SameSite=Lax 쿠키(HTTPS에서 Secure)로만 전달되고 서버에는 해시만 저장됩니다(기본 12시간, `SESSION_TTL_HOURS`). 관리자는 사용자 추가·비활성화·역할 변경·비밀번호 재설정을 할 수 있고, 비활성화·재설정 시 해당 사용자의 세션이 즉시 끊깁니다. 로그인 실패는 IP당 15분 내 `AUTH_MAX_FAILURES`(기본 20)회, 사용자 이름당 5회로 제한합니다. 이전 `WORKSPACE_PASSWORD`만 설정된 배포는 첫 실행 때 `workspace` 관리자 계정으로 옮겨집니다.
+- **CSRF:** 세션 쿠키는 SameSite=Lax이고, 추가로 상태를 바꾸는 요청은 `Sec-Fetch-Site`/`Origin`이 같은 출처일 때만 허용합니다.
 - **보안 헤더:** CSP(`frame-ancestors 'none'`), `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`(마이크만 허용), HSTS. `X-Powered-By`와 이미지 최적화 엔드포인트는 끕니다.
 - **요청 제한:** 업로드는 실제 클라이언트 IP 기준으로 제한합니다. 백엔드는 API 키가 맞는 내부 요청의 `X-Client-IP`만 신뢰합니다.
 - **의존성:** CI가 `pip-audit`, `npm audit --audit-level=high`로 알려진 취약점을 검사합니다.
