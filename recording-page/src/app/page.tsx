@@ -10,6 +10,17 @@ type Job = { id: string; title: string; status: string; uploaded_by?: string | n
 // Backend MAX_FILE_BYTES is 500 MB (~4.5 h of 16kHz mono WAV).
 const MAX_WAV_BYTES = 500 * 1024 * 1024;
 const labels: Record<string, string> = { processing: "분석 중", review: "검토 대기", approved: "승인 완료", rejected: "거절됨", failed: "처리 실패" };
+const slackHints: Record<string, string> = {
+  not_in_channel: "봇이 채널에 없습니다. 채널에서 /invite @앱이름 으로 초대한 뒤 다시 게시하세요.",
+  channel_not_found: "채널을 찾지 못했습니다. SLACK_BRIEF_CHANNEL에 채널 ID(C0…)를 넣고, 비공개 채널이면 봇을 먼저 초대하세요.",
+  invalid_auth: "Slack 토큰이 올바르지 않습니다. xoxb- 로 시작하는 Bot User OAuth Token인지 확인하세요.",
+  not_authed: "Slack 토큰이 설정되지 않았습니다.",
+  no_token: "Slack 토큰이 설정되지 않았습니다.",
+  missing_scope: "앱에 chat:write 권한이 없습니다. 권한을 추가하고 앱을 다시 설치하세요.",
+  account_inactive: "Slack 앱 또는 토큰이 비활성화되었습니다. 앱을 다시 설치하세요.",
+  is_archived: "보관 처리된 채널입니다. 다른 채널을 지정하세요.",
+  ratelimited: "Slack 요청 한도에 걸렸습니다. 잠시 후 다시 게시하세요.",
+};
 const failureReasons: Record<string, string> = {
   LLM_BUSY: "AI 분석 서비스가 일시적으로 혼잡했습니다. 잠시 후 \"다시 분석\"을 눌러주세요.",
   ANALYSIS_FAILED: "AI 분석 결과를 처리하지 못했습니다. \"다시 분석\"을 눌러보고, 반복되면 관리자에게 알려주세요.",
@@ -133,7 +144,7 @@ export default function Home() {
           <p><button disabled={busy} onClick={() => decide(current.id,"approved")}>{slack ? "승인하고 Slack에 게시" : "승인하고 업무 목록에 보관"}</button> <button disabled={busy} onClick={() => decide(current.id,"rejected")}>거절</button></p>
         </>}
         {current.status === "approved" && slack && <p role="status">
-          Slack: {({queued: "게시 중", scheduled: `예약됨 · ${current.publish_at ?? ""} UTC`, sent: `게시됨 · ${current.published_at ?? ""} UTC`, failed: `실패 — ${current.publish_error ?? ""}`} as Record<string, string>)[current.publish_status ?? ""] ?? "게시 안 함"}
+          Slack: {({queued: "게시 중", scheduled: `예약됨 · ${current.publish_at ?? ""} UTC`, sent: `게시됨 · ${current.published_at ?? ""} UTC`, failed: `실패 (${current.publish_error ?? "알 수 없음"}) — ${slackHints[current.publish_error ?? ""] ?? (current.publish_error?.includes("재시작") ? current.publish_error : "Slack 게시에 실패했습니다. 관리자에게 로그 확인을 요청하세요.")}`} as Record<string, string>)[current.publish_status ?? ""] ?? "게시 안 함"}
           {(current.publish_status === "failed" || !current.publish_status) && <> <button disabled={busy} onClick={() => republish(current.id)}>지금 Slack에 게시</button></>}
         </p>}
       </>}
