@@ -1,84 +1,113 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import AccountBar, { type Me } from "@/components/AccountBar";
+import AppShell, { type Me } from "@/components/AppShell";
+import { useToast } from "@/components/Toast";
+import { api, displayActor, formatWhen, jsonInit } from "@/lib/workspace";
 
+type User = { id: number; username: string; role: "admin" | "member"; active: boolean; mustChangePassword: boolean };
 type AuditEvent = { id: number; at: string; username: string | null; action: string; title: string | null; detail: string | null; ip: string | null };
-const ACTION_LABELS: Record<string, string> = {
+
+const ACTIONS: Record<string, string> = {
   login: "로그인", login_failed: "로그인 실패", logout: "로그아웃", password_change: "비밀번호 변경",
   user_create: "사용자 추가", user_update: "사용자 변경", upload: "업로드", approve: "승인", reject: "거절",
-  delete: "회의 삭제", purge: "보존 기간 만료 삭제",
+  delete: "회의 삭제", purge: "보존 기간 만료 삭제", publish_request: "Slack 게시 요청", publish: "Slack 게시 결과",
+  retry: "다시 분석", edit: "할 일 수정",
 };
-type User = { id: number; username: string; role: "admin" | "member"; active: boolean; mustChangePassword: boolean };
+const WARN_ACTIONS = new Set(["login_failed", "delete", "purge"]);
 
 export default function AdminPage() {
   const [me, setMe] = useState<Me | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
+  const [tab, setTab] = useState<"users" | "audit">("users");
+  const [users, setUsers] = useState<User[] | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [error, setError] = useState("");
+  const [forbidden, setForbidden] = useState(false);
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
   const load = useCallback(async () => {
     const res = await fetch("/api/auth/users", { cache: "no-store" });
-    if (res.status === 403) { setError("관리자만 사용할 수 있습니다."); return; }
-    if (!res.ok) { setError("사용자 목록을 불러오지 못했습니다."); return; }
+    if (res.status === 403) { setForbidden(true); return; }
+    if (!res.ok) { toast("사용자 목록을 불러오지 못했습니다.", "error"); return; }
     setUsers(await res.json());
-    const audit = await fetch("/api/auth/audit", { cache: "no-store" });
-    if (audit.ok) setEvents(await audit.json());
-  }, []);
+    setEvents(await api<AuditEvent[]>("/api/auth/audit").catch(() => []));
+  }, [toast]);
   useEffect(() => { load(); }, [load]);
-  async function call(url: string, method: string, body: unknown) {
-    setBusy(true); setError("");
-    try {
-      const res = await fetch(url, { method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail ?? "처리하지 못했습니다.");
-      await load(); return true;
-    } catch (e) { setError(e instanceof Error ? e.message : "처리하지 못했습니다."); return false; }
+
+  async function call(url: string, method: string, body: unknown, success: string) {
+    setBusy(true);
+    try { await api(url, jsonInit(method, body), "처리하지 못했습니다."); toast(success); await load(); return true; }
+    catch (e) { toast(e instanceof Error ? e.message : "처리하지 못했습니다.", "error"); return false; }
     finally { setBusy(false); }
   }
+
   async function create(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault(); const form = e.currentTarget; const data = new FormData(form);
-    if (await call("/api/auth/users", "POST", { username: data.get("username"), password: data.get("password"), role: data.get("role") })) form.reset();
+    if (await call("/api/auth/users", "POST", { username: data.get("username"), password: data.get("password"), role: data.get("role") },
+      `${data.get("username")} 계정을 추가했습니다.`)) form.reset();
   }
+
   function resetPassword(u: User) {
     const password = window.prompt(`${u.username}의 새 초기 비밀번호 (10자 이상). 사용자는 로그인 후 변경해야 합니다.`);
-    if (password) call(`/api/auth/users/${u.id}`, "PATCH", { password });
+    if (password) call(`/api/auth/users/${u.id}`, "PATCH", { password }, "비밀번호를 재설정했습니다. 해당 사용자는 로그아웃됩니다.");
   }
-  return <main style={{maxWidth: 1040, margin: "40px auto", padding: 24, fontFamily: "system-ui", color: "#182536"}}>
-    <AccountBar onUser={setMe} />
-    <p><a href="/">← 회의 목록</a></p>
-    <h1>사용자 관리</h1>
-    {error && <p role="alert" style={{color: "#a52020"}}>{error}</p>}
-    <form onSubmit={create} style={{display: "grid", gap: 12, padding: 24, background: "#f0f4f8", borderRadius: 12}}>
-      <h2 style={{margin: 0}}>사용자 추가</h2>
-      <label>사용자 이름 (영문 소문자·숫자·._-) <input name="username" required minLength={3} maxLength={32} pattern="[A-Za-z0-9._\-]+" /></label>
-      <label>초기 비밀번호 (10자 이상) <input name="password" type="text" required minLength={10} autoComplete="off" /></label>
-      <label>역할 <select name="role" defaultValue="member"><option value="member">구성원</option><option value="admin">관리자</option></select></label>
-      <small>초기 비밀번호는 사용자에게 안전한 방법으로 따로 전달하세요. 첫 로그인 후 변경 안내가 표시됩니다.</small>
-      <button disabled={busy}>추가</button>
-    </form>
-    <h2>사용자 목록</h2>
-    <table style={{width: "100%", borderCollapse: "collapse"}}>
-      <thead><tr><th align="left">이름</th><th align="left">역할</th><th align="left">상태</th><th align="left">관리</th></tr></thead>
-      <tbody>{users.map(u => <tr key={u.id} style={{borderTop: "1px solid #ccd5df"}}>
-        <td>{u.username}{me?.id === u.id ? " (나)" : ""}</td>
-        <td>{u.role === "admin" ? "관리자" : "구성원"}</td>
-        <td>{u.active ? (u.mustChangePassword ? "초기 비밀번호" : "사용 중") : "비활성"}</td>
-        <td style={{display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 0"}}>
-          <button disabled={busy || me?.id === u.id} onClick={() => call(`/api/auth/users/${u.id}`, "PATCH", { active: !u.active })}>{u.active ? "비활성화" : "다시 사용"}</button>
-          <button disabled={busy || me?.id === u.id} onClick={() => call(`/api/auth/users/${u.id}`, "PATCH", { role: u.role === "admin" ? "member" : "admin" })}>{u.role === "admin" ? "구성원으로" : "관리자로"}</button>
-          <button disabled={busy} onClick={() => resetPassword(u)}>비밀번호 재설정</button>
-        </td>
-      </tr>)}</tbody>
-    </table>
-    <p><small>비활성화하거나 비밀번호를 재설정하면 해당 사용자의 모든 세션이 즉시 로그아웃됩니다.</small></p>
-    <h2>감사 기록</h2>
-    <p><small>최근 200건 · 시각은 UTC · 회의를 삭제해도 기록은 남습니다(제목만, 회의 내용 없음).</small></p>
-    <table style={{width: "100%", borderCollapse: "collapse"}}>
-      <thead><tr><th align="left">시각</th><th align="left">사용자</th><th align="left">동작</th><th align="left">대상</th><th align="left">IP</th></tr></thead>
-      <tbody>{events.map(e => <tr key={e.id} style={{borderTop: "1px solid #ccd5df"}}>
-        <td>{e.at}</td><td>{e.username ?? "-"}</td><td>{ACTION_LABELS[e.action] ?? e.action}</td>
-        <td>{e.title ?? e.detail ?? "-"}</td><td>{e.ip ?? "-"}</td>
-      </tr>)}</tbody>
-    </table>
-  </main>;
+
+  return <AppShell section="admin" onUser={setMe}>
+    <main className="page">
+      <div className="page-head"><div><h1>사용자 관리</h1><p className="muted">계정을 관리하고 누가 무엇을 했는지 확인합니다.</p></div></div>
+      {forbidden ? <div className="alert alert-danger"><div className="alert-body">관리자만 사용할 수 있습니다.</div></div> : <>
+        <div className="tabs" role="tablist">
+          <button className="tab" role="tab" aria-selected={tab === "users"} onClick={() => setTab("users")}>사용자 {users ? `(${users.length})` : ""}</button>
+          <button className="tab" role="tab" aria-selected={tab === "audit"} onClick={() => setTab("audit")}>감사 기록</button>
+        </div>
+
+        {tab === "users" && <div className="split" style={{ gridTemplateColumns: "minmax(0, 1fr) 320px" }}>
+          <div className="card">
+            <div className="table-wrap"><table className="table">
+              <thead><tr><th>사용자</th><th>역할</th><th>상태</th><th style={{ textAlign: "right" }}>관리</th></tr></thead>
+              <tbody>{(users ?? []).map(u => <tr key={u.id}>
+                <td><div className="row"><span className="avatar" aria-hidden>{u.username.slice(0, 1).toUpperCase()}</span>
+                  <strong>{u.username}</strong>{me?.id === u.id && <span className="badge badge-plain">나</span>}</div></td>
+                <td>{u.role === "admin" ? <span className="badge badge-plain badge-accent">관리자</span> : <span className="badge badge-plain">구성원</span>}</td>
+                <td>{!u.active ? <span className="badge">비활성</span> : u.mustChangePassword
+                  ? <span className="badge badge-warning">초기 비밀번호</span> : <span className="badge badge-success">사용 중</span>}</td>
+                <td><div className="row" style={{ justifyContent: "flex-end" }}>
+                  <button className="btn btn-sm" disabled={busy} onClick={() => resetPassword(u)}>비밀번호 재설정</button>
+                  <button className="btn btn-sm" disabled={busy || me?.id === u.id}
+                    onClick={() => call(`/api/auth/users/${u.id}`, "PATCH", { role: u.role === "admin" ? "member" : "admin" }, "역할을 변경했습니다.")}>
+                    {u.role === "admin" ? "구성원으로" : "관리자로"}</button>
+                  <button className={`btn btn-sm${u.active ? " btn-danger" : ""}`} disabled={busy || me?.id === u.id}
+                    onClick={() => call(`/api/auth/users/${u.id}`, "PATCH", { active: !u.active }, u.active ? "비활성화했습니다. 즉시 로그아웃됩니다." : "다시 사용하도록 했습니다.")}>
+                    {u.active ? "비활성화" : "다시 사용"}</button>
+                </div></td>
+              </tr>)}</tbody>
+            </table></div>
+          </div>
+          <form className="card card-pad stack" onSubmit={create}>
+            <h2>사용자 추가</h2>
+            <label className="field"><span>사용자 이름</span><input className="input" name="username" required minLength={3} maxLength={32} pattern="[A-Za-z0-9._\-]+" autoComplete="off" />
+              <span className="hint">영문 소문자·숫자·. _ - (3~32자)</span></label>
+            <label className="field"><span>초기 비밀번호</span><input className="input" name="password" type="text" required minLength={10} autoComplete="off" />
+              <span className="hint">10자 이상. 사용자에게 따로 전달하면 첫 로그인 후 변경 안내가 표시됩니다.</span></label>
+            <label className="field"><span>역할</span><select className="select" name="role" defaultValue="member">
+              <option value="member">구성원</option><option value="admin">관리자</option></select></label>
+            <button className="btn btn-primary" disabled={busy}>추가</button>
+          </form>
+        </div>}
+
+        {tab === "audit" && <div className="card">
+          <div className="row" style={{ padding: "14px 16px" }}><span className="subtle">최근 200건 · 회의를 삭제해도 기록(제목만)은 남습니다.</span></div>
+          <div className="table-wrap"><table className="table">
+            <thead><tr><th>시각</th><th>사용자</th><th>동작</th><th>대상</th><th>IP</th></tr></thead>
+            <tbody>{events.map(e => <tr key={e.id}>
+              <td className="subtle" style={{ whiteSpace: "nowrap" }}>{formatWhen(e.at)}</td>
+              <td>{e.username ? displayActor(e.username) : <span className="subtle">-</span>}</td>
+              <td><span className={`badge badge-plain${WARN_ACTIONS.has(e.action) ? " badge-warning" : ""}`}>{ACTIONS[e.action] ?? e.action}</span></td>
+              <td>{e.title ?? e.detail ?? <span className="subtle">-</span>}{e.title && e.detail && <div className="subtle">{e.detail}</div>}</td>
+              <td className="subtle">{e.ip ?? "-"}</td>
+            </tr>)}</tbody>
+          </table></div>
+        </div>}
+      </>}
+    </main>
+  </AppShell>;
 }
