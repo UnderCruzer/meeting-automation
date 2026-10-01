@@ -1,8 +1,8 @@
 """
 Follow-up Automation endpoints — Issue #21
 
-POST /followup/reminders   — D-1/D-day 리마인더 즉시 트리거 (cron용)
-POST /followup/overdue     — 기한 초과 알림 트리거
+POST /followup/reminders   — due/overdue reminders now (sent as the Morning Brief, #83)
+POST /followup/overdue     — same
 POST /followup/jira        — Jira webhook 수신 (issue:updated)
 """
 import hashlib
@@ -13,11 +13,8 @@ import os
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from app.services.followup import (
-    handle_jira_webhook,
-    notify_overdue_items,
-    send_action_item_reminders,
-)
+from app.services.briefing import send_briefing
+from app.services.followup import handle_jira_webhook
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/followup")
@@ -30,14 +27,16 @@ class JiraWebhookPayload(BaseModel):
 
 
 @router.post("/reminders")
-async def trigger_reminders(background_tasks: BackgroundTasks):
-    background_tasks.add_task(send_action_item_reminders)
+async def trigger_reminders(request: Request, background_tasks: BackgroundTasks):
+    state = request.app.state
+    background_tasks.add_task(send_briefing, "morning", state.workspace, state.audit, state.storage)
     return {"triggered": "action_item_reminders"}
 
 
 @router.post("/overdue")
-async def trigger_overdue(background_tasks: BackgroundTasks):
-    background_tasks.add_task(notify_overdue_items)
+async def trigger_overdue(request: Request, background_tasks: BackgroundTasks):
+    state = request.app.state
+    background_tasks.add_task(send_briefing, "morning", state.workspace, state.audit, state.storage)
     return {"triggered": "overdue_notifications"}
 
 
