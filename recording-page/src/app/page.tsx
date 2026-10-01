@@ -4,13 +4,16 @@ import { encodeToWav } from "@/lib/audioEncoder";
 import AccountBar from "@/components/AccountBar";
 
 type Action = { description: string; assignee: string; due_date: string; citation_text: string };
-type Job = { id: string; title: string; status: string; uploaded_by?: string | null; decided_by?: string | null; decided_at?: string | null; created_at?: string; summary: null | { summary_ko: string; decisions: {text: string}[]; action_items: Action[]; quality_flags: {message: string}[] } };
+type Job = { id: string; title: string; status: string; uploaded_by?: string | null; decided_by?: string | null; decided_at?: string | null; created_at?: string;
+  publish_status?: "queued" | "scheduled" | "sent" | "failed" | null; publish_at?: string | null; published_at?: string | null; publish_error?: string | null; summary: null | { summary_ko: string; decisions: {text: string}[]; action_items: Action[]; quality_flags: {message: string}[] } };
 // Backend MAX_FILE_BYTES is 500 MB (~4.5 h of 16kHz mono WAV).
 const MAX_WAV_BYTES = 500 * 1024 * 1024;
 const labels: Record<string, string> = { processing: "분석 중", review: "검토 대기", approved: "승인 완료", rejected: "거절됨", failed: "처리 실패 — 파일을 다시 올려주세요" };
 
 export default function Home() {
   const [ephemeral, setEphemeral] = useState(false);
+  const [slack, setSlack] = useState(false);
+  const [publishNow, setPublishNow] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -24,7 +27,7 @@ export default function Home() {
   useEffect(() => {
     let active = true;
     fetch("/api/workspace/config").then(res => res.ok ? res.json() : Promise.reject())
-      .then(config => { if (active) setEphemeral(config.ephemeral); }).catch(() => {});
+      .then(config => { if (active) { setEphemeral(config.ephemeral); setSlack(!!config.slackPublishing); } }).catch(() => {});
     const load = () => { if (active) refresh().catch(e => { if (active) setError(e.message); }); };
     load(); const timer = setInterval(load, 5000);
     return () => { active = false; clearInterval(timer); };
@@ -49,10 +52,20 @@ export default function Home() {
   async function decide(id: string, status: string) {
     setBusy(true); setError("");
     try {
-      const res = await fetch(`/api/workspace/jobs/${id}/decision`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({status}) });
+      const res = await fetch(`/api/workspace/jobs/${id}/decision`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({status, publish_now: publishNow}) });
       if (!res.ok) throw new Error("이미 처리된 회의이거나 저장하지 못했습니다. 목록을 새로 확인해주세요.");
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "저장 실패"); }
+    finally { setBusy(false); }
+  }
+  async function republish(id: string) {
+    setBusy(true); setError("");
+    try {
+      const res = await fetch(`/api/workspace/jobs/${id}/publish`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ now: true }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail ?? "게시하지 못했습니다.");
+      await refresh();
+    } catch (e) { setError(e instanceof Error ? e.message : "게시 실패"); }
     finally { setBusy(false); }
   }
   async function remove(id: string, title: string) {
@@ -95,10 +108,17 @@ export default function Home() {
         <h3>할 일</h3>{!current.summary.action_items.length && <p>추출된 할 일이 없습니다.</p>}
         {current.summary.action_items.map((a,i) => <article key={i}><h4>{a.description}</h4><p>{a.assignee || "담당자 미정"} · {a.due_date || "기한 미정"}</p><blockquote>{a.citation_text || "일치하는 원문을 찾지 못했습니다. 직접 확인해주세요."}</blockquote></article>)}
         <small>근거는 키워드로 연결한 후보이며, 개인정보 패턴은 가려져 표시됩니다. 승인 전 내용을 확인해주세요.</small>
-        {current.status === "review" && <p><button disabled={busy} onClick={() => decide(current.id,"approved")}>승인하고 업무 목록에 보관</button> <button disabled={busy} onClick={() => decide(current.id,"rejected")}>거절</button></p>}
+        {current.status === "review" && <>
+          {slack && <label><input type="checkbox" checked={publishNow} onChange={e => setPublishNow(e.target.checked)} /> 지금 바로 Slack에 게시 (선택하지 않으면 근무시간에는 바로, 근무시간 외에는 다음 근무 시작에 게시)</label>}
+          <p><button disabled={busy} onClick={() => decide(current.id,"approved")}>{slack ? "승인하고 Slack에 게시" : "승인하고 업무 목록에 보관"}</button> <button disabled={busy} onClick={() => decide(current.id,"rejected")}>거절</button></p>
+        </>}
+        {current.status === "approved" && slack && <p role="status">
+          Slack: {({queued: "게시 중", scheduled: `예약됨 · ${current.publish_at ?? ""} UTC`, sent: `게시됨 · ${current.published_at ?? ""} UTC`, failed: `실패 — ${current.publish_error ?? ""}`} as Record<string, string>)[current.publish_status ?? ""] ?? "게시 안 함"}
+          {(current.publish_status === "failed" || !current.publish_status) && <> <button disabled={busy} onClick={() => republish(current.id)}>지금 Slack에 게시</button></>}
+        </p>}
       </>}
     </section>}
-    <h2>승인한 업무</h2><p>승인 결과는 내부 목록에 저장됩니다. 외부 서비스에는 발송되지 않습니다.</p>
+    <h2>승인한 업무</h2><p>{slack ? "승인한 회의는 Slack 채널에 게시되고, 이 목록에도 보관됩니다." : "승인 결과는 내부 목록에 저장됩니다. 외부 서비스에는 발송되지 않습니다."}</p>
     {jobs.filter(j => j.status === "approved").flatMap(j => j.summary?.action_items.map((a,i) => <article key={`${j.id}-${i}`}><strong>{a.description}</strong><p>{j.title} · {a.assignee || "담당자 미정"} · {a.due_date || "기한 미정"}{j.decided_by ? ` · 승인 ${j.decided_by}` : ""}</p></article>) ?? [])}
   </main>;
 }
