@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { encodeToWav } from "@/lib/audioEncoder";
 import AccountBar from "@/components/AccountBar";
+import ActionItemsEditor from "@/components/ActionItemsEditor";
 
 type Action = { description: string; assignee: string; due_date: string; citation_text: string };
 type Job = { id: string; title: string; status: string; uploaded_by?: string | null; decided_by?: string | null; decided_at?: string | null; created_at?: string;
@@ -33,6 +34,7 @@ export default function Home() {
   const [ephemeral, setEphemeral] = useState(false);
   const [slack, setSlack] = useState(false);
   const [publishNow, setPublishNow] = useState(false);
+  const [publishSlack, setPublishSlack] = useState(true);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -71,7 +73,7 @@ export default function Home() {
   async function decide(id: string, status: string) {
     setBusy(true); setError("");
     try {
-      const res = await fetch(`/api/workspace/jobs/${id}/decision`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({status, publish_now: publishNow}) });
+      const res = await fetch(`/api/workspace/jobs/${id}/decision`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({status, publish_now: publishNow, publish_slack: publishSlack}) });
       if (!res.ok) throw new Error("이미 처리된 회의이거나 저장하지 못했습니다. 목록을 새로 확인해주세요.");
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "저장 실패"); }
@@ -137,11 +139,17 @@ export default function Home() {
         {current.summary.quality_flags.map((f,i) => <p key={i} style={{color:"#8a5000"}}>검토 필요: {f.message}</p>)}
         <h3>결정 사항</h3><ul>{current.summary.decisions.map((d,i) => <li key={i}>{d.text}</li>)}</ul>
         <h3>할 일</h3>{!current.summary.action_items.length && <p>추출된 할 일이 없습니다.</p>}
-        {current.summary.action_items.map((a,i) => <article key={i}><h4>{a.description}</h4><p>{a.assignee || "담당자 미정"} · {a.due_date || "기한 미정"}</p><blockquote>{a.citation_text || "일치하는 원문을 찾지 못했습니다. 직접 확인해주세요."}</blockquote></article>)}
+        {current.status === "review"
+          ? <ActionItemsEditor key={current.id} jobId={current.id} items={current.summary.action_items} onSaved={refresh} />
+          : current.summary.action_items.map((a,i) => <article key={i}><h4>{a.description}</h4><p>{a.assignee || "담당자 미정"} · {a.due_date || "기한 미정"}</p><blockquote>{a.citation_text || "일치하는 원문을 찾지 못했습니다. 직접 확인해주세요."}</blockquote></article>)}
         <small>근거는 키워드로 연결한 후보이며, 개인정보 패턴은 가려져 표시됩니다. 승인 전 내용을 확인해주세요.</small>
         {current.status === "review" && <>
-          {slack && <label><input type="checkbox" checked={publishNow} onChange={e => setPublishNow(e.target.checked)} /> 지금 바로 Slack에 게시 (선택하지 않으면 근무시간에는 바로, 근무시간 외에는 다음 근무 시작에 게시)</label>}
-          <p><button disabled={busy} onClick={() => decide(current.id,"approved")}>{slack ? "승인하고 Slack에 게시" : "승인하고 업무 목록에 보관"}</button> <button disabled={busy} onClick={() => decide(current.id,"rejected")}>거절</button></p>
+          {slack && <fieldset style={{border: "1px solid #ccd5df", borderRadius: 8, padding: 12}}>
+            <legend>승인 시 내보내기</legend>
+            <label><input type="checkbox" checked={publishSlack} onChange={e => setPublishSlack(e.target.checked)} /> Slack 채널에 게시</label><br />
+            <label><input type="checkbox" disabled={!publishSlack} checked={publishNow} onChange={e => setPublishNow(e.target.checked)} /> 지금 바로 게시 (선택하지 않으면 근무시간에는 바로, 근무시간 외에는 다음 근무 시작에 게시)</label>
+          </fieldset>}
+          <p><button disabled={busy} onClick={() => decide(current.id,"approved")}>{slack && publishSlack ? "승인하고 Slack에 게시" : "승인하고 업무 목록에 보관"}</button> <button disabled={busy} onClick={() => decide(current.id,"rejected")}>거절</button></p>
         </>}
         {current.status === "approved" && slack && <p role="status">
           Slack: {({queued: "게시 중", scheduled: `예약됨 · ${current.publish_at ?? ""} UTC`, sent: `게시됨 · ${current.published_at ?? ""} UTC`, failed: `실패 (${current.publish_error ?? "알 수 없음"}) — ${slackHints[current.publish_error ?? ""] ?? (current.publish_error?.includes("재시작") ? current.publish_error : "Slack 게시에 실패했습니다. 관리자에게 로그 확인을 요청하세요.")}`} as Record<string, string>)[current.publish_status ?? ""] ?? "게시 안 함"}
