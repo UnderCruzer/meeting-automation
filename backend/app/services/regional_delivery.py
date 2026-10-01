@@ -69,12 +69,12 @@ def build_regional_message(
     lang = _select_language(region)
     channel = _channel(region)
 
+    # The body (Slack Brief) carries its own "회의 요약" section, so the header is just the title.
+    header = f"📋 *{meeting_id}*"
     if lang == "ko":
-        header = f"📋 *회의 요약* | `{meeting_id}`"
         body = summary_ko
         footer = f"_지역: {region.value} · {schedule.local_time}_"
     else:
-        header = f"📋 *Meeting Brief* | `{meeting_id}`"
         body = summary_en
         footer = f"_Region: {region.value} · {schedule.local_time}_"
 

@@ -87,6 +87,18 @@ class Workspace:
             ).rowcount
         return bool(changed)
 
+    def update_action_items(self, job_id, items):
+        """Replace the action items of a job still under review. Returns False otherwise."""
+        with self.connect() as db:
+            row = db.execute("SELECT summary FROM jobs WHERE id=? AND status='review'", (job_id,)).fetchone()
+            if row is None or not row["summary"]:
+                return False
+            summary = json.loads(row["summary"])
+            summary["action_items"] = items
+            changed = db.execute("UPDATE jobs SET summary=? WHERE id=? AND status='review'",
+                                 (json.dumps(summary, ensure_ascii=False), job_id)).rowcount
+        return bool(changed)
+
     def get(self, job_id):
         with self.connect() as db:
             row = db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
