@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import aiofiles
 
 
 _COPY_CHUNK = 1024 * 1024
+_JOB_ID = re.compile(r"[0-9a-f]{32}")
 
 
 class AudioSizeError(ValueError):
@@ -50,6 +52,21 @@ class LocalStorage:
         meta_path = self.base_dir / (file_key[:-4] + ".json")
         async with aiofiles.open(meta_path, "w", encoding="utf-8") as f:
             await f.write(json.dumps(metadata, ensure_ascii=False, indent=2))
+
+
+    def delete_job_files(self, job_id: str) -> int:
+        """Remove every artifact of a job ({meeting}/{job_id}.*). Returns the number removed."""
+        if not _JOB_ID.fullmatch(job_id):
+            raise ValueError("Invalid job id")
+        removed = 0
+        for path in self.base_dir.glob(f"*/{job_id}.*"):
+            path.unlink(missing_ok=True)
+            removed += 1
+            try:
+                path.parent.rmdir()  # only succeeds once the meeting folder is empty
+            except OSError:
+                pass
+        return removed
 
 
 def _safe_name(name: str) -> str:

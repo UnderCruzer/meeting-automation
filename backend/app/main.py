@@ -19,6 +19,7 @@ from app.routers.upload import router as upload_router
 from app.storage.local import LocalStorage
 from app.services.write_queue import start_worker
 from app.services import llm
+from app.services.retention import run_purge_loop
 
 load_dotenv()
 
@@ -32,8 +33,10 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(app.state.workspace.recover)
     # Start write queue worker as background task
     worker_task = asyncio.create_task(start_worker())
+    purge_task = asyncio.create_task(run_purge_loop(app.state.workspace, app.state.storage))
     yield
     worker_task.cancel()
+    purge_task.cancel()
 
 
 app = FastAPI(title="Meeting Automation Backend", lifespan=lifespan)
@@ -45,7 +48,7 @@ origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:300
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_methods=["POST", "GET"],
+    allow_methods=["POST", "GET", "DELETE"],
     allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
 

@@ -6,7 +6,8 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path?: 
     return NextResponse.json({ ephemeral: process.env.WORKSPACE_STORAGE === "ephemeral" });
   }
   if (!(path.length === 1 && path[0] === "jobs" && req.method === "GET") &&
-      !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "decision" && req.method === "POST")) {
+      !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "decision" && req.method === "POST") &&
+      !(path.length === 2 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && req.method === "DELETE")) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   }
   try {
@@ -22,3 +23,4 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path?: 
 }
 export const GET = forward;
 export const POST = forward;
+export const DELETE = forward;

@@ -48,3 +48,27 @@ class Workspace:
         with self.connect() as db:
             changed = db.execute("UPDATE jobs SET status=? WHERE id=? AND status='review'", (status,job_id)).rowcount
         return bool(changed)
+
+    def delete(self, job_id):
+        """Delete a finished job row. Returns False if missing, raises if still processing."""
+        with self.connect() as db:
+            row = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                return False
+            if row["status"] == "processing":
+                raise JobBusyError(job_id)
+            db.execute("DELETE FROM jobs WHERE id=? AND status!='processing'", (job_id,))
+        return True
+
+    def expired(self, days):
+        """IDs of non-processing jobs created more than `days` days ago."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id FROM jobs WHERE status!='processing' AND created_at < datetime('now', ?)",
+                (f"-{int(days)} days",),
+            ).fetchall()
+        return [row["id"] for row in rows]
+
+
+class JobBusyError(Exception):
+    """The job is still being processed and cannot be deleted yet."""
