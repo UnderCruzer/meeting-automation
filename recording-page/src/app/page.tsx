@@ -5,10 +5,18 @@ import AccountBar from "@/components/AccountBar";
 
 type Action = { description: string; assignee: string; due_date: string; citation_text: string };
 type Job = { id: string; title: string; status: string; uploaded_by?: string | null; decided_by?: string | null; decided_at?: string | null; created_at?: string;
-  publish_status?: "queued" | "scheduled" | "sent" | "failed" | null; publish_at?: string | null; published_at?: string | null; publish_error?: string | null; summary: null | { summary_ko: string; decisions: {text: string}[]; action_items: Action[]; quality_flags: {message: string}[] } };
+  publish_status?: "queued" | "scheduled" | "sent" | "failed" | null; publish_at?: string | null; published_at?: string | null; publish_error?: string | null;
+  error_code?: string | null; can_retry?: boolean; summary: null | { summary_ko: string; decisions: {text: string}[]; action_items: Action[]; quality_flags: {message: string}[] } };
 // Backend MAX_FILE_BYTES is 500 MB (~4.5 h of 16kHz mono WAV).
 const MAX_WAV_BYTES = 500 * 1024 * 1024;
-const labels: Record<string, string> = { processing: "분석 중", review: "검토 대기", approved: "승인 완료", rejected: "거절됨", failed: "처리 실패 — 파일을 다시 올려주세요" };
+const labels: Record<string, string> = { processing: "분석 중", review: "검토 대기", approved: "승인 완료", rejected: "거절됨", failed: "처리 실패" };
+const failureReasons: Record<string, string> = {
+  LLM_BUSY: "AI 분석 서비스가 일시적으로 혼잡했습니다. 잠시 후 \"다시 분석\"을 눌러주세요.",
+  ANALYSIS_FAILED: "AI 분석 결과를 처리하지 못했습니다. \"다시 분석\"을 눌러보고, 반복되면 관리자에게 알려주세요.",
+  STT_FAILED: "음성을 텍스트로 바꾸지 못했습니다. 잠시 후 녹음을 다시 올려주세요.",
+  NO_SPEECH: "녹음에서 말소리를 찾지 못했습니다. 다른 파일로 다시 올려주세요.",
+  RESTARTED: "처리 중 서버가 다시 시작되었습니다. 녹음을 다시 올려주세요.",
+};
 
 export default function Home() {
   const [ephemeral, setEphemeral] = useState(false);
@@ -58,6 +66,16 @@ export default function Home() {
     } catch (e) { setError(e instanceof Error ? e.message : "저장 실패"); }
     finally { setBusy(false); }
   }
+  async function retryAnalysis(id: string) {
+    setBusy(true); setError("");
+    try {
+      const res = await fetch(`/api/workspace/jobs/${id}/retry`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail ?? "다시 분석하지 못했습니다.");
+      await refresh();
+    } catch (e) { setError(e instanceof Error ? e.message : "다시 분석 실패"); }
+    finally { setBusy(false); }
+  }
   async function republish(id: string) {
     setBusy(true); setError("");
     try {
@@ -99,6 +117,8 @@ export default function Home() {
     <div style={{display:"flex", flexWrap:"wrap", gap: 8}}>{jobs.map(j => <button key={j.id} onClick={() => setSelected(j.id)} aria-pressed={selected === j.id}>{j.title} · {labels[j.status]}</button>)}</div>
     {current && <section style={{padding: 24, border:"1px solid #ccd5df", borderRadius:12, marginTop:20}}>
       <h2>{current.title}</h2><p role="status">{labels[current.status]}</p>
+      {current.status === "failed" && <p role="alert" style={{color: "#8a5000"}}>{failureReasons[current.error_code ?? ""] ?? "처리하지 못했습니다. 녹음을 다시 올려주세요."}
+        {current.can_retry && <> <button disabled={busy} onClick={() => retryAnalysis(current.id)}>다시 분석</button></>}</p>}
       <p><small>업로드: {current.uploaded_by ?? "알 수 없음"}{current.created_at ? ` · ${current.created_at} UTC` : ""}
         {current.decided_by && ` · ${current.status === "approved" ? "승인" : "거절"}: ${current.decided_by}${current.decided_at ? ` · ${current.decided_at} UTC` : ""}`}</small></p>
       {current.status !== "processing" && <p><button disabled={busy} onClick={() => remove(current.id, current.title)}>회의 삭제</button></p>}
