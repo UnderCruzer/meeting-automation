@@ -13,7 +13,9 @@ class Workspace:
             existing = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
             for column in ("uploaded_by", "decided_by", "decided_at",
                            # Slack publishing (#73): none|queued|scheduled|sent|failed
-                           "publish_status", "publish_at", "published_at", "publish_channel", "publish_error"):
+                           "publish_status", "publish_at", "published_at", "publish_channel", "publish_error",
+                           # Failure reason code and the masked transcript kept for "다시 분석" (#75)
+                           "error_code", "retry_payload"):
                 if column not in existing:
                     db.execute(f"ALTER TABLE jobs ADD COLUMN {column} TEXT")
 
@@ -33,16 +35,33 @@ class Workspace:
 
     def finish(self, job_id, summary):
         with self.connect() as db:
-            db.execute("UPDATE jobs SET status='review',summary=? WHERE id=? AND status='processing'", (json.dumps(summary,ensure_ascii=False),job_id))
+            db.execute("UPDATE jobs SET status='review',summary=?,error_code=NULL,retry_payload=NULL"
+                       " WHERE id=? AND status='processing'", (json.dumps(summary,ensure_ascii=False),job_id))
 
-    def fail(self, job_id):
+    def fail(self, job_id, code="FAILED"):
         with self.connect() as db:
-            db.execute("UPDATE jobs SET status='failed' WHERE id=? AND status='processing'", (job_id,))
+            db.execute("UPDATE jobs SET status='failed', error_code=? WHERE id=? AND status='processing'", (code, job_id))
+
+    def save_retry(self, job_id, payload):
+        """Keep the masked transcript so analysis can be retried without re-upload."""
+        with self.connect() as db:
+            db.execute("UPDATE jobs SET retry_payload=? WHERE id=?", (json.dumps(payload, ensure_ascii=False), job_id))
+
+    def start_retry(self, job_id):
+        """Atomically move a retryable failed job back to processing; returns its payload or None."""
+        with self.connect() as db:
+            row = db.execute("SELECT retry_payload FROM jobs WHERE id=? AND status='failed' AND retry_payload IS NOT NULL",
+                             (job_id,)).fetchone()
+            if row is None:
+                return None
+            changed = db.execute("UPDATE jobs SET status='processing', error_code=NULL WHERE id=? AND status='failed'",
+                                 (job_id,)).rowcount
+        return json.loads(row["retry_payload"]) if changed else None
 
     def recover(self):
         # 실행 중 재시작된 작업은 무한 대기 대신 실패로 표시한다.
         with self.connect() as db:
-            db.execute("UPDATE jobs SET status='failed' WHERE status='processing'")
+            db.execute("UPDATE jobs SET status='failed', error_code='RESTARTED' WHERE status='processing'")
             # Queued/scheduled Slack posts lived in memory and are gone after a restart.
             db.execute("UPDATE jobs SET publish_status='failed', publish_error='서버 재시작으로 게시 예약이 취소되었습니다.'"
                        " WHERE publish_status IN ('queued','scheduled')")
@@ -50,7 +69,13 @@ class Workspace:
     def list(self):
         with self.connect() as db:
             rows = db.execute("SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT 100").fetchall()
-        return [{**dict(row), "summary": json.loads(row["summary"]) if row["summary"] else None} for row in rows]
+        return [self._public(row) for row in rows]
+
+    @staticmethod
+    def _public(row):
+        job = {**dict(row), "summary": json.loads(row["summary"]) if row["summary"] else None}
+        job["can_retry"] = job.pop("retry_payload", None) is not None and job["status"] == "failed"
+        return job
 
     def decide(self, job_id, status, decided_by=None):
         if status not in ("approved", "rejected"):
@@ -67,7 +92,7 @@ class Workspace:
             row = db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
         if row is None:
             return None
-        return {**dict(row), "summary": json.loads(row["summary"]) if row["summary"] else None}
+        return self._public(row)
 
     def set_publish(self, job_id, status, *, at=None, channel=None, error=None):
         if status not in ("queued", "scheduled", "sent", "failed"):
