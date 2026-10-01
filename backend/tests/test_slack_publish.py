@@ -128,7 +128,9 @@ def test_failure_marks_failed_and_allows_retry(env, monkeypatch):
     client = TestClient(app)
     client.post(f"/workspace/jobs/{JOB}/decision", json={"status": "approved"})
     _drain()
-    assert app.state.workspace.get(JOB)["publish_status"] == "failed"
+    job = app.state.workspace.get(JOB)
+    assert (job["publish_status"], job["publish_error"]) == ("failed", "not_in_channel")
+    assert "not_in_channel" in app.state.audit.recent()[0]["detail"]
     assert client.post(f"/workspace/jobs/{JOB}/publish", json={"now": True}).json()["publish_status"] == "queued"
 
 
@@ -167,3 +169,24 @@ def test_delay_parsing():
     assert write_queue._delay_seconds("cancelled", now) == 0
     assert write_queue._delay_seconds("2026-09-30T00:00:00+00:00", now) == 0
     assert write_queue._delay_seconds("2026-10-01T00:01:00+00:00", now) == 60
+
+
+def test_error_codes_are_sanitised():
+    assert slack_publish.slack_error_code("channel_not_found") == "channel_not_found"
+    assert slack_publish.slack_error_code("ConnectError: [Errno -2] https://slack.com") == "delivery_error"
+    assert slack_publish.slack_error_code("") == "delivery_error"
+
+
+def test_hook_failure_after_success_does_not_repost(env, monkeypatch, tmp_path):
+    app, posts = env
+
+    async def broken_hook(ok, detail):
+        raise RuntimeError("db locked")
+
+    task = write_queue.WriteTask(job_id=JOB, meeting_id="m", artifact="regional_slack", base_dir=tmp_path,
+                                 payload={"title": "t", "text_ko": "본문", "text_en": "body",
+                                          "schedule": {"region": "APAC", "send_at": None,
+                                                       "local_time": "", "scheduled": False}},
+                                 on_result=broken_hook)
+    asyncio.run(write_queue._dispatch(task))
+    assert len(posts) == 1

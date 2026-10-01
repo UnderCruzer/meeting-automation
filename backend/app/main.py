@@ -26,6 +26,10 @@ from app.services import llm
 from app.services.retention import run_purge_loop
 
 load_dotenv()
+# Without this, app INFO logs (publish success, retries, pipeline progress) never reach the console.
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(),
+                    format="%(levelname)s %(name)s: %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)  # per-request lines are noise
 logger = logging.getLogger(__name__)
 
 
