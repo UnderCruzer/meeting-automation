@@ -35,7 +35,8 @@ def _channel(region: Region) -> str:
         Region.NA:      "meeting-brief-na",
         Region.UNKNOWN: "meeting-brief-apac",
     }
-    return os.getenv(env_map[region], default_map[region])
+    # Region channel → shared brief channel → built-in default. Channel IDs (C0123…) are recommended.
+    return os.getenv(env_map[region]) or os.getenv("SLACK_BRIEF_CHANNEL") or default_map[region]
 
 
 # ── Language selection ────────────────────────────────────────────────────────
@@ -111,7 +112,8 @@ async def deliver_regional(
     msg = build_regional_message(summary_ko, summary_en, meeting_id, schedule, thread_ts)
 
     payload: dict = {
-        "channel": f"#{msg.channel}",
+        # Pass the configured value as-is: a "#" prefix breaks channel IDs.
+        "channel": msg.channel,
         "text": msg.text,
         "mrkdwn": True,
     }
