@@ -15,6 +15,9 @@ services:
         value: gemini
       - key: GEMINI_MODEL
         value: gemini-3.8-flash
+      # onrender.com은 Cloudflare 뒤에 있음 — Cloudflare가 매 요청 덮어쓰는 헤더라 위조 불가
+      - key: CLIENT_IP_HEADER
+        value: cf-connecting-ip
       - key: GEMINI_API_KEY
         sync: false
       - key: GROQ_API_KEY
