@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import os
 import json
-from typing import Optional
 import logging
 from pathlib import Path
 
@@ -10,8 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 
 from app.models.meeting import MeetingMetadata, UploadResponse
 from app.middleware.rate_limit import client_ip
-from app.routers.auth import current_user
-from app.services.accounts import User
+from app.routers.auth import Uploader, upload_actor
 from app.models.transcript import TranscriptResult, TranscriptSegment
 from app.storage.local import AudioSizeError
 from app.services.workspace import Workspace
@@ -39,12 +37,14 @@ async def upload_audio(
     background_tasks: BackgroundTasks,
     audio: UploadFile = File(...),
     metadata: str = Form(...),
-    user: Optional[User] = Depends(current_user),
+    uploader: Uploader = Depends(upload_actor),
 ) -> UploadResponse:
     try:
         meta = MeetingMetadata.model_validate(json.loads(metadata))
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    if uploader.meeting_lock is not None and meta.meetingId != uploader.meeting_lock:
+        raise HTTPException(status_code=403, detail="이 녹음 링크로는 해당 회의만 업로드할 수 있습니다.")
 
     storage = request.app.state.storage
     try:
@@ -55,7 +55,7 @@ async def upload_audio(
     await storage.save_metadata(file_key, meta.model_dump())
 
     job_id = file_key.split("/")[-1][:-4]
-    username = user.username if user else None
+    username = uploader.username
     await asyncio.to_thread(request.app.state.workspace.create, job_id, meta.title, username)
     audit = getattr(request.app.state, "audit", None)
     if audit is not None:
