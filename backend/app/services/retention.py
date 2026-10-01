@@ -24,23 +24,27 @@ def retention_days() -> int:
         return 0
 
 
-async def purge_expired(workspace, storage) -> int:
+async def purge_expired(workspace, storage, audit=None) -> int:
     days = retention_days()
     if not days:
         return 0
     removed = 0
     for job_id in await asyncio.to_thread(workspace.expired, days):
+        title = await asyncio.to_thread(workspace.title, job_id)
         if await delete_job(workspace, storage, job_id):
             removed += 1
+            if audit is not None:
+                await asyncio.to_thread(audit.record, "purge", "system", job_id=job_id, title=title,
+                                        detail=f"보존 기간 {days}일 경과")
     if removed:
         logger.info("[Retention] Purged %d meetings older than %d days", removed, days)
     return removed
 
 
-async def run_purge_loop(workspace, storage) -> None:
+async def run_purge_loop(workspace, storage, audit=None) -> None:
     while True:
         try:
-            await purge_expired(workspace, storage)
+            await purge_expired(workspace, storage, audit)
         except Exception:
             logger.exception("[Retention] Purge failed")
         await asyncio.sleep(_PURGE_INTERVAL_SECONDS)

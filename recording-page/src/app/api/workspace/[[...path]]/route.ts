@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clientIp } from "@/lib/clientIp";
 import { backendHeaders, backendUrl, readSessionToken } from "@/lib/session";
 
 async function forward(req: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
@@ -14,7 +15,7 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path?: 
   try {
     const res = await fetch(backendUrl(`/workspace/${path.join("/")}`), {
       method: req.method, cache: "no-store",
-      headers: backendHeaders(readSessionToken(req.headers), { "Content-Type": "application/json" }),
+      headers: backendHeaders(readSessionToken(req.headers), { "Content-Type": "application/json", "X-Client-IP": clientIp(req.headers) }),
       body: req.method === "POST" ? await req.text() : undefined,
     });
     return new NextResponse(await res.text(), { status: res.status, headers: { "Content-Type": "application/json" } });

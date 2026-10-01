@@ -4,7 +4,7 @@ import { encodeToWav } from "@/lib/audioEncoder";
 import AccountBar from "@/components/AccountBar";
 
 type Action = { description: string; assignee: string; due_date: string; citation_text: string };
-type Job = { id: string; title: string; status: string; summary: null | { summary_ko: string; decisions: {text: string}[]; action_items: Action[]; quality_flags: {message: string}[] } };
+type Job = { id: string; title: string; status: string; uploaded_by?: string | null; decided_by?: string | null; decided_at?: string | null; created_at?: string; summary: null | { summary_ko: string; decisions: {text: string}[]; action_items: Action[]; quality_flags: {message: string}[] } };
 // Backend MAX_FILE_BYTES is 500 MB (~4.5 h of 16kHz mono WAV).
 const MAX_WAV_BYTES = 500 * 1024 * 1024;
 const labels: Record<string, string> = { processing: "분석 중", review: "검토 대기", approved: "승인 완료", rejected: "거절됨", failed: "처리 실패 — 파일을 다시 올려주세요" };
@@ -86,6 +86,8 @@ export default function Home() {
     <div style={{display:"flex", flexWrap:"wrap", gap: 8}}>{jobs.map(j => <button key={j.id} onClick={() => setSelected(j.id)} aria-pressed={selected === j.id}>{j.title} · {labels[j.status]}</button>)}</div>
     {current && <section style={{padding: 24, border:"1px solid #ccd5df", borderRadius:12, marginTop:20}}>
       <h2>{current.title}</h2><p role="status">{labels[current.status]}</p>
+      <p><small>업로드: {current.uploaded_by ?? "알 수 없음"}{current.created_at ? ` · ${current.created_at} UTC` : ""}
+        {current.decided_by && ` · ${current.status === "approved" ? "승인" : "거절"}: ${current.decided_by}${current.decided_at ? ` · ${current.decided_at} UTC` : ""}`}</small></p>
       {current.status !== "processing" && <p><button disabled={busy} onClick={() => remove(current.id, current.title)}>회의 삭제</button></p>}
       {current.summary && <><p style={{whiteSpace:"pre-wrap"}}>{current.summary.summary_ko}</p>
         {current.summary.quality_flags.map((f,i) => <p key={i} style={{color:"#8a5000"}}>검토 필요: {f.message}</p>)}
@@ -97,6 +99,6 @@ export default function Home() {
       </>}
     </section>}
     <h2>승인한 업무</h2><p>승인 결과는 내부 목록에 저장됩니다. 외부 서비스에는 발송되지 않습니다.</p>
-    {jobs.filter(j => j.status === "approved").flatMap(j => j.summary?.action_items.map((a,i) => <article key={`${j.id}-${i}`}><strong>{a.description}</strong><p>{j.title} · {a.assignee || "담당자 미정"} · {a.due_date || "기한 미정"}</p></article>) ?? [])}
+    {jobs.filter(j => j.status === "approved").flatMap(j => j.summary?.action_items.map((a,i) => <article key={`${j.id}-${i}`}><strong>{a.description}</strong><p>{j.title} · {a.assignee || "담당자 미정"} · {a.due_date || "기한 미정"}{j.decided_by ? ` · 승인 ${j.decided_by}` : ""}</p></article>) ?? [])}
   </main>;
 }

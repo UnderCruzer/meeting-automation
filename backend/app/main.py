@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.workspace import Workspace
 from app.services.accounts import Accounts
+from app.services.audit import AuditLog
 from app.routers.auth import router as auth_router
 from app.routers.workspace import router as workspace_router
 from app.config import validate_env
@@ -38,10 +39,11 @@ async def lifespan(app: FastAPI):
         Accounts, storage_dir, int(os.getenv("SESSION_TTL_HOURS", "12"))
     )
     await asyncio.to_thread(bootstrap_admin, app.state.accounts)
+    app.state.audit = await asyncio.to_thread(AuditLog, storage_dir)
     await asyncio.to_thread(app.state.workspace.recover)
     # Start write queue worker as background task
     worker_task = asyncio.create_task(start_worker())
-    purge_task = asyncio.create_task(run_purge_loop(app.state.workspace, app.state.storage))
+    purge_task = asyncio.create_task(run_purge_loop(app.state.workspace, app.state.storage, app.state.audit))
     yield
     worker_task.cancel()
     purge_task.cancel()

@@ -2,13 +2,16 @@ from __future__ import annotations
 import asyncio
 import os
 import json
+from typing import Optional
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.models.meeting import MeetingMetadata, UploadResponse
+from app.middleware.rate_limit import client_ip
 from app.routers.auth import current_user
+from app.services.accounts import User
 from app.models.transcript import TranscriptSegment
 from app.storage.local import AudioSizeError
 from app.services.workspace import Workspace
@@ -29,12 +32,13 @@ router = APIRouter()
 MAX_FILE_BYTES = 500 * 1024 * 1024  # 500 MB
 
 
-@router.post("/upload", response_model=UploadResponse, dependencies=[Depends(current_user)])
+@router.post("/upload", response_model=UploadResponse)
 async def upload_audio(
     request: Request,
     background_tasks: BackgroundTasks,
     audio: UploadFile = File(...),
     metadata: str = Form(...),
+    user: Optional[User] = Depends(current_user),
 ) -> UploadResponse:
     try:
         meta = MeetingMetadata.model_validate(json.loads(metadata))
@@ -50,7 +54,12 @@ async def upload_audio(
     await storage.save_metadata(file_key, meta.model_dump())
 
     job_id = file_key.split("/")[-1][:-4]
-    await asyncio.to_thread(request.app.state.workspace.create, job_id, meta.title)
+    username = user.username if user else None
+    await asyncio.to_thread(request.app.state.workspace.create, job_id, meta.title, username)
+    audit = getattr(request.app.state, "audit", None)
+    if audit is not None:
+        await asyncio.to_thread(audit.record, "upload", username, job_id=job_id, title=meta.title,
+                                ip=client_ip(request))
     audio_path = storage.base_dir / file_key
     background_tasks.add_task(
         _run_stt_and_guard, audio_path, file_key, meta.meetingId, storage.base_dir, meta.participants
