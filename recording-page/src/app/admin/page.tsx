@@ -148,7 +148,16 @@ function BriefingPanel() {
         : "자동 발송이 꺼져 있습니다. Slack 토큰이 설정되어 있는지, BRIEFING_ENABLED가 false가 아닌지 확인하세요."}
     </div></div>}
     {preview === null ? <div className="empty"><span className="spin" aria-hidden /></div>
-      : preview.text ? <pre className="preview">{preview.text}</pre>
+      : preview.text ? <pre className="preview">{readable(preview.text)}</pre>
       : <p className="subtle">오늘 보낼 내용이 없습니다. 승인된 회의의 할 일에 기한이 있거나, 최근 승인된 회의가 있으면 표시됩니다.</p>}
   </div>;
+}
+
+/** Slack mrkdwn → plain preview: links show their title, mentions show the user ID, markers dropped. */
+function readable(mrkdwn: string): string {
+  return mrkdwn
+    .replace(/<([^|>]+)\|([^>]+)>/g, "$2")
+    .replace(/<@([A-Z0-9]+)>/g, "@$1")
+    .replace(/(^|\s)[*_]([^*_\n]+)[*_](?=\s|$|[.,)])/g, "$1$2")
+    .replace(/_\(([^)]*)\)_/g, "($1)");
 }
