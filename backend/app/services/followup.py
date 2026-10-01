@@ -17,6 +17,8 @@ import json
 
 import httpx
 
+from app.services.name_guard import load_name_map, unmask_text
+
 logger = logging.getLogger(__name__)
 
 _STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./data/recordings"))
@@ -32,9 +34,13 @@ def _load_action_items() -> list[dict]:
     for path in _STORAGE_DIR.rglob("*.analysis.json"):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+            names = load_name_map(path)  # analysis is stored pseudonymised
             for item in data.get("action_items", []):
                 # action_item이 dict이면 due_date 필드 사용, str이면 스킵
                 if isinstance(item, dict) and item.get("due_date"):
+                    for key in ("description", "assignee"):
+                        if isinstance(item.get(key), str):
+                            item[key] = unmask_text(item[key], names)
                     item["_source"] = str(path)
                     items.append(item)
         except Exception as exc:

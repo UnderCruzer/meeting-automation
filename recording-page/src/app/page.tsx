@@ -38,7 +38,8 @@ export default function Home() {
       const wav = await encodeToWav(file); const now = new Date().toISOString();
       if (wav.size > MAX_WAV_BYTES) throw new Error("녹음이 너무 깁니다. 4시간 이하로 나눠서 올려주세요.");
       const payload = new FormData(); payload.set("audio", wav, "meeting.wav");
-      payload.set("metadata", JSON.stringify({ meetingId: crypto.randomUUID(), title: data.get("title"), startTime: now, endTime: now }));
+      const participants = String(data.get("participants") ?? "").split(",").map(n => n.trim()).filter(Boolean);
+      payload.set("metadata", JSON.stringify({ meetingId: crypto.randomUUID(), title: data.get("title"), startTime: now, endTime: now, participants }));
       const res = await fetch("/api/upload", { method: "POST", body: payload });
       if (!res.ok) throw new Error("업로드하지 못했습니다. 파일 크기와 서버 설정을 확인해주세요.");
       const job = await res.json(); setSelected(job.jobId); await refresh(); form.reset(); setConsent(false);
@@ -72,6 +73,8 @@ export default function Home() {
     {ephemeral && <p role="note" style={{padding:16, background:"#fff4df", borderRadius:8}}>체험용 서버입니다. 재시작·재배포 시 녹음과 회의 기록이 초기화될 수 있습니다. 보존이 필요한 자료는 올리지 마세요.</p>}
     <form onSubmit={upload} style={{display: "grid", gap: 12, padding: 24, background: "#f0f4f8", borderRadius: 12}}>
       <label>회의 제목 <input name="title" required maxLength={200} placeholder="주간 프로젝트 회의" /></label>
+      <label>참석자 이름 (선택) <input name="participants" maxLength={1000} placeholder="김민수, 박지은, Sarah Kim" /></label>
+      <small>입력한 이름과 "김민수 팀장"처럼 호칭이 붙은 이름은 AI로 보내기 전에 가명으로 바뀌고, 이 화면에서만 원래 이름으로 보입니다.</small>
       <label>녹음 파일 <input name="audio" type="file" accept="audio/*" required /></label>
       <small>100MB 이하 · 브라우저에서 WAV로 변환 · 업로드 시 전사 및 AI 분석이 실행됩니다.</small>
       <small>녹음은 전사 서비스(Groq 또는 OpenAI)로, 개인정보 패턴을 가린 전사문은 분석 서비스(Gemini 또는 Claude)로 전송됩니다. 원본 녹음은 처리 후 서버에서 삭제됩니다.</small>

@@ -87,6 +87,7 @@ Guidelines:
 - action_items: extract specific tasks with assignees and deadlines when mentioned
 - routing: include "jira" if action items require task tracking, "confluence" if documentation is needed, "slack" if a brief summary should be shared
 - confidence: lower score (< 0.6) if transcript is short, fragmented, or unclear
+- Tokens like [PERSON_1] are pseudonyms for real people and [MASKED_*] hides personal data: copy them exactly as written (e.g. assignee "[PERSON_1]"); never guess the real value
 - Respond in the language of the transcript for summaries; always produce both KR and EN versions"""
 
 

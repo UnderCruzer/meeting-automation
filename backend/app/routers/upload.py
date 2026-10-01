@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import os
 import json
@@ -15,6 +16,7 @@ from app.models.transcript import TranscriptSegment
 from app.storage.local import AudioSizeError
 from app.services.workspace import Workspace
 from app.services.guard import mask_transcript_segments, save_guard_report
+from app.services.name_guard import pseudonymise_segments, save_name_map, unmask_model
 from app.services.orchestrator import analyse, save_analysis
 from app.services.retrieval import retrieve_context
 from app.services.stt import save_transcript, transcribe
@@ -59,12 +61,15 @@ async def upload_audio(
         await asyncio.to_thread(audit.record, "upload", username, job_id=job_id, title=meta.title,
                                 ip=client_ip(request))
     audio_path = storage.base_dir / file_key
-    background_tasks.add_task(_run_stt_and_guard, audio_path, file_key, meta.meetingId, storage.base_dir)
+    background_tasks.add_task(
+        _run_stt_and_guard, audio_path, file_key, meta.meetingId, storage.base_dir, meta.participants
+    )
     return UploadResponse(jobId=job_id, fileKey=file_key, meetingId=meta.meetingId)
 
 
 async def _run_stt_and_guard(
-    audio_path: Path, file_key: str, meeting_id: str, base_dir: Path
+    audio_path: Path, file_key: str, meeting_id: str, base_dir: Path,
+    participants: list[str] | None = None,
 ) -> None:
     workspace = await asyncio.to_thread(Workspace, base_dir)
     job_id = file_key.split("/")[-1][:-4]
@@ -75,6 +80,9 @@ async def _run_stt_and_guard(
         masked_segments_raw, all_matches = mask_transcript_segments(
             [seg.model_dump() for seg in transcript.segments]
         )
+        # Replace person names with [PERSON_n]; the token map never leaves this server
+        masked_segments_raw, name_tokens = pseudonymise_segments(masked_segments_raw, participants)
+        await save_name_map(name_tokens, file_key, base_dir)
         masked_full_text = " ".join(s["text"] for s in masked_segments_raw)
         masked_transcript = transcript.model_copy(update={
             "segments": [TranscriptSegment(**s) for s in masked_segments_raw],
@@ -92,8 +100,10 @@ async def _run_stt_and_guard(
         analysis = await analyse(transcript, masked_text=masked_full_text)
         await save_analysis(analysis, file_key, base_dir)
 
-        # Enrich with citations + quality validation — citations quote the masked text
-        summary = build_summary(analysis, masked_transcript)
+        # Enrich with citations + quality validation — citations quote the masked text.
+        # Names are restored only in the summary shown to signed-in users.
+        masked_summary = build_summary(analysis, masked_transcript)
+        summary = unmask_model(masked_summary, name_tokens)
         await save_summary(summary, file_key, base_dir)
 
         await asyncio.to_thread(workspace.finish, job_id, summary.model_dump())
@@ -106,7 +116,10 @@ async def _run_stt_and_guard(
         # Generate drafts — only for routing targets, skip if quality_ok is False
         if summary.quality_ok:
             if "jira" in analysis.routing:
-                jira_result = await generate_jira_drafts(summary, analysis, context)
+                # LLM call: send the pseudonymised summary, restore names in the drafts
+                jira_result = unmask_model(
+                    await generate_jira_drafts(masked_summary, analysis, context), name_tokens
+                )
                 await save_jira_drafts(jira_result, file_key, base_dir)
 
             if "confluence" in analysis.routing:
