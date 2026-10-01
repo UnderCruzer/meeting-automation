@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/Toast";
+import BrandMark from "@/components/BrandMark";
 
 export type Me = { id: number; username: string; role: "admin" | "member"; mustChangePassword: boolean };
 type Section = "meetings" | "tasks" | "admin";
@@ -49,7 +50,7 @@ export default function AppShell({ section, onUser, children }: {
 
   return <>
     <header className="topbar">
-      <a href="/" className="brand"><span className="brand-mark" aria-hidden>◆</span><span className="brand-name">회의에서 실행까지</span></a>
+      <a href="/" className="brand"><BrandMark /><span className="brand-name">회의에서 실행까지</span></a>
       <nav className="nav" aria-label="주요 메뉴">
         {nav.map(([key, href, label]) => <a key={key} href={href} aria-current={section === key ? "page" : undefined}>{label}</a>)}
       </nav>
@@ -74,7 +75,7 @@ export default function AppShell({ section, onUser, children }: {
     <dialog ref={dialog} className="dialog" aria-labelledby="pw-title">
       <form onSubmit={changePassword}>
         <div className="dialog-head"><h2 id="pw-title">비밀번호 변경</h2>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => dialog.current?.close()} aria-label="닫기">✕</button></div>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => dialog.current?.close()} aria-label="닫기">닫기</button></div>
         <div className="dialog-body">
           <label className="field"><span>현재 비밀번호</span><input className="input" name="current" type="password" autoComplete="current-password" required /></label>
           <label className="field"><span>새 비밀번호</span><input className="input" name="new" type="password" autoComplete="new-password" minLength={10} required /><span className="hint">10자 이상</span></label>
