@@ -37,4 +37,9 @@ test("tampered payload, wrong secret or junk are rejected", async () => {
   assert.strictEqual(await verifyGrant("not-a-token", SECRET, now), null);
   assert.strictEqual(await verifyGrant(`${token}.extra`, SECRET, now), null);
   assert.strictEqual(await verifyGrant(token, undefined, now), null);
+  // Same signature bytes spelled differently (unused low bits of the last base64 char): rejected too.
+  const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const variant = sig.slice(0, -1) + ALPHABET[ALPHABET.indexOf(sig.at(-1)) ^ 1];
+  assert.ok(Buffer.from(variant, "base64url").equals(Buffer.from(sig, "base64url")));
+  assert.strictEqual(await verifyGrant(`${body}.${variant}`, SECRET, now), null);
 });

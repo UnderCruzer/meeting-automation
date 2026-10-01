@@ -8,6 +8,10 @@ export type RecordingGrant = {
   v: 1; m: string; u: string; t: string; s: string; e: string; l: string; exp: number;
 };
 
+function toBase64Url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 function fromBase64Url(value: string): Uint8Array {
   const base64 = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
   const binary = atob(base64);
@@ -36,6 +40,8 @@ export async function verifyGrant(
     );
     // subtle.verify compares in constant time.
     const signature = fromBase64Url(sig);
+    // Reject non-canonical encodings (e.g. changed padding bits) so each grant has one spelling.
+    if (toBase64Url(signature) !== sig) return null;
     const valid = await crypto.subtle.verify("HMAC", key, signature as BufferSource, new TextEncoder().encode(body));
     if (!valid) return null;
     const grant = decodeGrant(token);
