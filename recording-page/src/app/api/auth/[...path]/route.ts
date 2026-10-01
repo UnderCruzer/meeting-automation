@@ -8,7 +8,7 @@ type Params = { params: Promise<{ path: string[] }> };
 
 const ALLOWED: Array<[string, RegExp]> = [
   ["POST", /^login$/], ["POST", /^logout$/], ["GET", /^me$/], ["POST", /^password$/],
-  ["GET", /^users$/], ["POST", /^users$/], ["PATCH", /^users\/\d{1,9}$/],
+  ["GET", /^users$/], ["POST", /^users$/], ["PATCH", /^users\/\d{1,9}$/], ["GET", /^audit$/],
 ];
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}) {
@@ -31,7 +31,7 @@ async function forward(req: NextRequest, { params }: Params) {
   try {
     res = await fetch(backendUrl(`/auth/${path}`), {
       method: req.method, cache: "no-store",
-      headers: backendHeaders(token, { "Content-Type": "application/json" }),
+      headers: backendHeaders(token, { "Content-Type": "application/json", "X-Client-IP": ip }),
       body: req.method === "GET" ? undefined : await req.text(),
     });
   } catch {
