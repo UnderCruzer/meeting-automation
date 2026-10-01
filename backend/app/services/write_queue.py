@@ -87,6 +87,8 @@ async def _dispatch(task: WriteTask) -> None:
         await _write_audit(task, success=False, detail={"error": "cancelled"})
         return
 
+    result: Any = None
+    last_error = "unknown"
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             if task.artifact == "jira":
@@ -102,30 +104,43 @@ async def _dispatch(task: WriteTask) -> None:
             else:
                 logger.warning("[WriteQueue] Unknown artifact type: %s", task.artifact)
                 return
-
-            await _write_audit(task, success=True, detail=result)
-            logger.info("[WriteQueue] ✓ %s:%s published", task.job_id, task.artifact)
-            if task.on_result:
-                await task.on_result(True, result)
-            return
+            break
         except Exception as exc:
+            last_error = str(exc) or type(exc).__name__
             logger.warning("[WriteQueue] Attempt %d/%d failed for %s:%s — %s",
                            attempt, _MAX_RETRIES, task.job_id, task.artifact, exc)
             if attempt < _MAX_RETRIES:
                 await asyncio.sleep(2 ** (attempt - 1))
+    else:
+        await _write_audit(task, success=False, detail={"error": "max retries exceeded"})
+        logger.error("[WriteQueue] ✗ %s:%s failed after %d attempts", task.job_id, task.artifact, _MAX_RETRIES)
+        await _report(task, False, {"error": last_error})
 
-    await _write_audit(task, success=False, detail={"error": "max retries exceeded"})
-    logger.error("[WriteQueue] ✗ %s:%s failed after %d attempts", task.job_id, task.artifact, _MAX_RETRIES)
-    if task.on_result:
-        await task.on_result(False, {"error": "max retries exceeded"})
+        from app.services.alert import send_failure_alert
+        await send_failure_alert(
+            job_id=task.job_id,
+            artifact=task.artifact,
+            meeting_id=task.meeting_id,
+            error="max retries exceeded",
+        )
+        return
 
-    from app.services.alert import send_failure_alert
-    await send_failure_alert(
-        job_id=task.job_id,
-        artifact=task.artifact,
-        meeting_id=task.meeting_id,
-        error="max retries exceeded",
-    )
+    # Published. Bookkeeping below must never trigger a re-publish (duplicate message).
+    logger.info("[WriteQueue] ✓ %s:%s published", task.job_id, task.artifact)
+    try:
+        await _write_audit(task, success=True, detail=result)
+    except Exception:
+        logger.exception("[WriteQueue] Audit write failed for %s:%s", task.job_id, task.artifact)
+    await _report(task, True, result)
+
+
+async def _report(task: WriteTask, ok: bool, detail: Any) -> None:
+    if not task.on_result:
+        return
+    try:
+        await task.on_result(ok, detail)
+    except Exception:
+        logger.exception("[WriteQueue] Result hook failed for %s:%s", task.job_id, task.artifact)
 
 
 async def _publish_jira(payload: dict) -> dict:
