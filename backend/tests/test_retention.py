@@ -1,3 +1,4 @@
+from app.routers.auth import current_user
 import asyncio
 from unittest.mock import AsyncMock
 
@@ -85,6 +86,7 @@ def _client(tmp_path):
     app.state.workspace = Workspace(tmp_path)
     app.state.storage = LocalStorage(tmp_path)
     app.include_router(router)
+    app.dependency_overrides[current_user] = lambda: None  # auth covered in test_auth.py
     return app, TestClient(app)
 
 
