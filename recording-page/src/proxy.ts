@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { check, secured, toResponse } from "@/lib/gate";
+import { isCrossSiteWrite } from "@/lib/security";
 
 const PUBLIC_PATHS = new Set(["/login", "/api/auth/login"]);
 
 export async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
-  if (PUBLIC_PATHS.has(pathname)) return secured(NextResponse.next());
+  if (PUBLIC_PATHS.has(pathname)) {
+    // No session needed, but a cross-site login POST (login CSRF) is still refused.
+    if (isCrossSiteWrite(req.method, req.headers))
+      return toResponse({ status: 403, message: "다른 사이트에서 보낸 요청은 허용되지 않습니다." });
+    return secured(NextResponse.next());
+  }
 
   const gate = await check(req.method, req.headers);
   if ("rejection" in gate) {
