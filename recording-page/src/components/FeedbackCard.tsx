@@ -39,16 +39,14 @@ export default function FeedbackCard({ jobId }: { jobId: string }) {
 
   const toggle = (code: string) => setCategories(list => list.includes(code) ? list.filter(c => c !== code) : [...list, code]);
 
-  return <section className="card card-pad section" aria-labelledby={`fb-${jobId}`}>
-    <div className="section-title"><h2 id={`fb-${jobId}`}>요약이 정확했나요?</h2>
-      {data && (data.good + data.bad > 0) && <span className="subtle">팀 피드백 👍 {data.good} · 👎 {data.bad}</span>}</div>
+  return <section className="panel-section" aria-labelledby={`fb-${jobId}`}>
+    <div className="section-title"><h2 id={`fb-${jobId}`}>요약 평가</h2>
+      {data && (data.good + data.bad > 0) && <span className="subtle">팀 피드백 정확 {data.good} · 수정 필요 {data.bad}</span>}</div>
     <div className="row">
-      <button className="btn" aria-pressed={rating === "good"} disabled={busy}
-        style={rating === "good" ? { borderColor: "var(--success)", color: "var(--success)" } : undefined}
-        onClick={() => submit("good")}>👍 정확해요</button>
-      <button className="btn" aria-pressed={rating === "bad"} disabled={busy}
-        style={rating === "bad" ? { borderColor: "var(--danger)", color: "var(--danger)" } : undefined}
-        onClick={() => setRating("bad")}>👎 고칠 점이 있어요</button>
+      <div className="segmented" role="group" aria-label="요약 평가">
+        <button aria-pressed={rating === "good"} disabled={busy} onClick={() => submit("good")}>정확함</button>
+        <button aria-pressed={rating === "bad"} disabled={busy} onClick={() => setRating("bad")}>수정 필요</button>
+      </div>
     </div>
     {rating === "bad" && <div className="stack" style={{ gap: 10 }}>
       <div className="chips" role="group" aria-label="문제 유형">

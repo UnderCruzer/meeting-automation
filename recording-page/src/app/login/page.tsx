@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import BrandMark from "@/components/BrandMark";
 
 function LoginForm() {
   const params = useSearchParams();
@@ -34,9 +35,9 @@ export default function LoginPage() {
   return <main className="center-page">
     <div className="card auth-card">
       <div className="stack" style={{ gap: 10 }}>
-        <span className="brand-mark" aria-hidden style={{ width: 40, height: 40, fontSize: 18 }}>◆</span>
+        <BrandMark size={28} />
         <h1>회의에서 실행까지</h1>
-        <p className="muted">회의 녹음을 요약하고, 검토·승인한 할 일을 팀에 공유합니다.</p>
+        <p className="muted">회의 녹음 요약 · 할 일 검토 · 팀 공유</p>
       </div>
       <Suspense><LoginForm /></Suspense>
       <p className="subtle">계정이 없으면 관리자에게 요청하세요.</p>

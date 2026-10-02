@@ -39,7 +39,8 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
   const publish = job.status === "approved" && slack ? publishState(job) : null;
 
   return <article className="detail">
-    <div className="card card-pad detail-head">
+    <div className="card panel">
+    <div className="panel-section detail-head">
       <button className="btn btn-ghost btn-sm only-mobile" style={{ justifySelf: "start" }} onClick={onBack}>← 목록</button>
       <div className="row"><h1 style={{ flex: 1, minWidth: 0 }}>{job.title}</h1><StatusBadge status={job.status} /></div>
       <div className="meta">
@@ -47,9 +48,9 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
         {job.decided_by && <span>{job.status === "approved" ? "승인" : "거절"} {displayActor(job.decided_by)} · {formatWhen(job.decided_at)}</span>}
       </div>
       {job.status === "processing" && <div className="alert alert-info"><span className="spin" aria-hidden /><div className="alert-body">
-        전사와 AI 분석을 진행하고 있습니다. 보통 1~3분 걸리며, 끝나면 자동으로 표시됩니다.</div></div>}
+        <strong>분석 중</strong><span>전사와 AI 분석에 보통 1~3분 걸리며, 끝나면 자동으로 표시됩니다.</span></div></div>}
       {job.status === "failed" && <div className="alert alert-warning"><div className="alert-body">
-        {FAILURE_REASONS[job.error_code ?? ""] ?? "처리하지 못했습니다. 녹음을 다시 올려주세요."}</div>
+        <strong>처리 실패</strong><span>{FAILURE_REASONS[job.error_code ?? ""] ?? "처리하지 못했습니다. 녹음을 다시 올려주세요."}</span></div>
         {job.can_retry && <button className="btn btn-sm" disabled={busy}
           onClick={() => run(() => api(`/api/workspace/jobs/${job.id}/retry`, { method: "POST" }, "다시 분석하지 못했습니다."), "다시 분석을 시작했습니다.")}>다시 분석</button>}
       </div>}
@@ -61,19 +62,19 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
     </div>
 
     {summary && <>
-      <section className="card card-pad section">
+      <section className="panel-section">
         <h2>요약</h2>
         <p className="summary-text">{summary.summary_ko}</p>
-        {summary.quality_flags.map((f, i) => <div key={i} className="alert alert-warning"><div className="alert-body">검토 필요: {f.message}</div></div>)}
+        {summary.quality_flags.map((f, i) => <div key={i} className="alert alert-warning"><div className="alert-body"><strong>검토 필요</strong><span>{f.message}</span></div></div>)}
       </section>
 
-      <section className="card card-pad section">
+      <section className="panel-section">
         <h2>결정 사항</h2>
         {summary.decisions.length ? <ul className="bullets">{summary.decisions.map((d, i) => <li key={i}>{d.text}</li>)}</ul>
           : <p className="subtle">확정된 결정 사항이 없습니다.</p>}
       </section>
 
-      <section className="card card-pad section">
+      <section className="panel-section">
         <div className="section-title"><h2>할 일 <span className="count">{summary.action_items.length}</span></h2>
           {job.status === "review" && <span className="subtle">승인 전 담당자·기한·우선순위를 확인하세요</span>}</div>
         {job.status === "review"
@@ -86,7 +87,7 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
                     onChange={() => run(() => api(`/api/workspace/jobs/${job.id}/action-items/${i}`, jsonInit("PATCH", { done: !a.done }), "상태를 바꾸지 못했습니다."),
                       a.done ? "다시 진행 중으로 바꿨습니다." : "완료했습니다.")} /></label>}
                   <strong style={{ flex: 1, textDecoration: a.done ? "line-through" : undefined }}>{a.description}</strong>
-                  {due && <span className={`badge badge-plain ${due.tone}`}>{due.label}</span>}<PriorityBadge priority={a.priority} /></div>
+                  {due && <span className={`badge ${due.tone}`}>{due.label}</span>}<PriorityBadge priority={a.priority} /></div>
                 <div className="meta"><span>담당 {a.assignee || "미정"}</span><span>기한 {a.due_date || "미정"}</span>
                   {a.done && <span>완료 {displayActor(a.done_by)} · {formatWhen(a.done_at)}</span>}</div>
                 <blockquote className={`quote${a.citation_text ? "" : " quote-missing"}`}>{a.citation_text || "일치하는 원문을 찾지 못했습니다."}</blockquote>
@@ -98,6 +99,12 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
 
     {summary && <FeedbackCard key={`fb-${job.id}`} jobId={job.id} />}
 
+    {job.status !== "processing" && <div className="panel-section danger-zone">
+      <div><strong>회의 삭제</strong><div className="subtle">분석 결과와 파일을 지웁니다. 감사 기록에는 제목만 남습니다.</div></div>
+      <button className="btn btn-danger btn-sm" disabled={busy} onClick={remove}>삭제</button>
+    </div>}
+    </div>
+
     {job.status === "review" && <div className="actionbar">
       {slack ? <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 240 }}>
         <label className="check"><input type="checkbox" checked={publishSlack} onChange={e => setPublishSlack(e.target.checked)} /><span>Slack 채널에 게시</span></label>
@@ -107,11 +114,6 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
       <button className="btn btn-danger" disabled={busy} onClick={() => decide("rejected")}>거절</button>
       <button className="btn btn-primary btn-lg" disabled={busy} onClick={() => decide("approved")}>
         {slack && publishSlack ? "승인하고 Slack에 게시" : "승인"}</button>
-    </div>}
-
-    {job.status !== "processing" && <div className="danger-zone">
-      <div><strong>회의 삭제</strong><div className="subtle">분석 결과와 파일을 지웁니다. 감사 기록에는 제목만 남습니다.</div></div>
-      <button className="btn btn-danger btn-sm" disabled={busy} onClick={remove}>삭제</button>
     </div>}
   </article>;
 }

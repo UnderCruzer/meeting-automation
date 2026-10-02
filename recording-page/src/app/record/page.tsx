@@ -9,6 +9,7 @@ import { MeetingInfo } from "@/components/MeetingInfo";
 import { RecordButton } from "@/components/RecordButton";
 import { formatTime } from "@/lib/meetingTime";
 import { decodeGrant } from "@/lib/recordingGrant";
+import BrandMark from "@/components/BrandMark";
 
 interface MeetingMeta {
   id: string;
@@ -102,10 +103,10 @@ function RecordPage() {
     <main className="center-page">
       <div className="card record-card">
         <div className="row">
-          <span className="brand-mark" aria-hidden>◆</span>
+          <BrandMark />
           <h1 style={{ fontSize: 18 }}>회의 녹음</h1>
           <span className="spacer" />
-          {status === "recording" && <span className="badge badge-danger badge-plain"><span className="rec-dot" aria-hidden />REC</span>}
+          {status === "recording" && <span className="badge badge-danger row" style={{ gap: 6 }}><span className="rec-dot" aria-hidden />녹음 중</span>}
         </div>
 
         <MeetingInfo
@@ -128,7 +129,7 @@ function RecordPage() {
             <div className="alert alert-info"><span className="spin" aria-hidden /><div className="alert-body">업로드 중… 창을 닫지 마세요.</div></div>
           )}
           {uploadDone && !uploadError && (
-            <div className="alert alert-success"><div className="alert-body">✅ 업로드 완료. 분석이 끝나면 담당자가 검토 후 공유합니다. 이 창은 닫아도 됩니다.</div></div>
+            <div className="alert alert-success"><div className="alert-body"><strong>업로드 완료</strong><span>분석이 끝나면 담당자가 검토 후 공유합니다. 이 창은 닫아도 됩니다.</span></div></div>
           )}
           {uploadError && (
             <div className="alert alert-danger" role="alert"><div className="alert-body">업로드 실패: {uploadError}</div></div>

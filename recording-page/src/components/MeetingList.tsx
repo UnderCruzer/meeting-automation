@@ -13,7 +13,7 @@ export default function MeetingList({ jobs, selected, onSelect }: {
   jobs: Job[]; selected: string; onSelect: (id: string) => void;
 }) {
   if (!jobs.length) return <div className="empty" style={{ padding: "40px 16px" }}>
-    <span className="empty-icon" aria-hidden>🗂️</span><span>아직 올린 회의가 없습니다.</span></div>;
+    <span>아직 올린 회의가 없습니다.</span></div>;
   return <div className="list" role="list">
     {GROUPS.map(([label, statuses]) => {
       const group = jobs.filter(j => statuses.includes(j.status));

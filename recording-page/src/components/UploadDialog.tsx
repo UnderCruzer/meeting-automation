@@ -55,7 +55,7 @@ const UploadDialog = forwardRef<UploadDialogHandle, {
   return <dialog ref={dialog} className="dialog" aria-labelledby="upload-title" onClose={() => !busy && reset()}>
     <form onSubmit={submit}>
       <div className="dialog-head"><h2 id="upload-title">녹음 올리기</h2>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => dialog.current?.close()} aria-label="닫기">✕</button></div>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => dialog.current?.close()} aria-label="닫기">닫기</button></div>
       <div className="dialog-body">
         <label className="field"><span>회의 제목</span><input className="input" name="title" required maxLength={200} placeholder="예: 주간 프로젝트 회의" /></label>
         <label className="field"><span>참석자 이름 <span className="subtle">(선택)</span></span>
@@ -65,7 +65,6 @@ const UploadDialog = forwardRef<UploadDialogHandle, {
           onDragOver={e => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
           onDrop={e => { e.preventDefault(); setDragging(false); pick(e.dataTransfer.files[0]); }}>
           <input type="file" accept="audio/*" onChange={e => pick(e.target.files?.[0])} />
-          <span style={{ fontSize: 26 }} aria-hidden>🎧</span>
           {file ? <><strong>{file.name}</strong><span className="subtle">{(file.size / 1024 / 1024).toFixed(1)}MB · 다른 파일을 고르려면 클릭</span></>
             : <><strong>녹음 파일을 끌어다 놓거나 클릭해서 선택</strong><span className="subtle">m4a·mp3·wav 등 100MB 이하</span></>}
         </label>

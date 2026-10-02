@@ -70,8 +70,8 @@ export default function AdminPage() {
               <thead><tr><th>사용자</th><th>역할</th><th>상태</th><th style={{ textAlign: "right" }}>관리</th></tr></thead>
               <tbody>{(users ?? []).map(u => <tr key={u.id}>
                 <td><div className="row"><span className="avatar" aria-hidden>{u.username.slice(0, 1).toUpperCase()}</span>
-                  <strong>{u.username}</strong>{me?.id === u.id && <span className="badge badge-plain">나</span>}</div></td>
-                <td>{u.role === "admin" ? <span className="badge badge-plain badge-accent">관리자</span> : <span className="badge badge-plain">구성원</span>}</td>
+                  <strong>{u.username}</strong>{me?.id === u.id && <span className="badge">나</span>}</div></td>
+                <td>{u.role === "admin" ? <span className="badge badge-accent">관리자</span> : <span className="badge">구성원</span>}</td>
                 <td>{!u.active ? <span className="badge">비활성</span> : u.mustChangePassword
                   ? <span className="badge badge-warning">초기 비밀번호</span> : <span className="badge badge-success">사용 중</span>}</td>
                 <td><div className="row" style={{ justifyContent: "flex-end" }}>
@@ -108,7 +108,7 @@ export default function AdminPage() {
             <tbody>{events.map(e => <tr key={e.id}>
               <td className="subtle" style={{ whiteSpace: "nowrap" }}>{formatWhen(e.at)}</td>
               <td>{e.username ? displayActor(e.username) : <span className="subtle">-</span>}</td>
-              <td><span className={`badge badge-plain${WARN_ACTIONS.has(e.action) ? " badge-warning" : ""}`}>{ACTIONS[e.action] ?? e.action}</span></td>
+              <td><span className={`badge${WARN_ACTIONS.has(e.action) ? " badge-warning" : ""}`}>{ACTIONS[e.action] ?? e.action}</span></td>
               <td>{e.title ?? e.detail ?? <span className="subtle">-</span>}{e.title && e.detail && <div className="subtle">{e.detail}</div>}</td>
               <td className="subtle">{e.ip ?? "-"}</td>
             </tr>)}</tbody>

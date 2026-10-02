@@ -55,7 +55,7 @@ export default function MetricsPanel() {
     </div>
 
     {data && data.alerts.map(a => <div key={a.code} className="alert alert-warning" role="alert">
-      <span aria-hidden>⚠️</span><div className="alert-body"><strong>품질 경고</strong><span>{a.message}</span></div></div>)}
+      <div className="alert-body"><strong>품질 경고</strong><span>{a.message}</span></div></div>)}
     {data && !data.alert_channel && <div className="alert alert-info"><div className="alert-body">
       <span>경고와 주간 품질 리포트를 Slack으로 받으려면 관리자용 채널 ID를 <code>MONITOR_ALERT_CHANNEL</code>에 설정하세요.</span></div></div>}
 

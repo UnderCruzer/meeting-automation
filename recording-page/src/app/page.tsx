@@ -53,16 +53,16 @@ export default function MeetingsPage() {
   return <AppShell section="meetings">
     <main className="page">
       <div className="page-head">
-        <div><h1>회의</h1><p className="muted">녹음을 올리면 요약과 할 일을 만들어 드립니다. 검토하고 승인하면 팀에 공유됩니다.</p></div>
+        <div><h1>회의</h1><p className="muted">녹음 → 요약·할 일 → 검토·승인 → 팀 공유</p></div>
         <button className="btn btn-primary btn-lg" onClick={() => upload.current?.open()}>+ 녹음 올리기</button>
       </div>
       {ephemeral && <div className="alert alert-warning"><div className="alert-body">
-        체험용 서버입니다. 재시작·재배포 시 녹음과 회의 기록이 초기화될 수 있으니 보존이 필요한 자료는 올리지 마세요.</div></div>}
+        <strong>체험용 서버</strong><span>재시작·재배포 시 회의 기록이 초기화됩니다. 보존할 자료는 올리지 마세요.</span></div></div>}
 
       <div className="split" data-view={current ? "detail" : "list"}>
         <aside className="sidebar card" aria-label="회의 목록">
-          <div className="row" style={{ padding: "14px 16px 0" }}>
-            <h2 style={{ fontSize: 15 }}>회의 기록</h2>
+          <div className="row sidebar-head">
+            <h2>회의 기록</h2>
             {pending > 0 && <span className="badge badge-accent">검토 대기 {pending}</span>}
           </div>
           {jobs === null ? <div className="empty"><span className="spin" aria-hidden /></div>
@@ -73,9 +73,8 @@ export default function MeetingsPage() {
             ? <MeetingDetail key={current.id} job={current} slack={slack} onChanged={refresh}
                 onDeleted={() => { setSelected(""); refresh().catch(() => {}); }} onBack={() => setSelected("")} />
             : <div className="card empty">
-                <span className="empty-icon" aria-hidden>🎙️</span>
                 <strong>{jobs?.length ? "왼쪽에서 회의를 선택하세요" : "첫 회의 녹음을 올려보세요"}</strong>
-                <span>회의가 끝나면 녹음 파일을 올리거나, 캘린더와 연결해 Slack으로 녹음 링크를 받을 수 있습니다.</span>
+                <span>녹음 파일을 올리거나, 캘린더를 연결하면 회의 전에 Slack으로 녹음 링크가 옵니다.</span>
                 {!jobs?.length && <button className="btn btn-primary" onClick={() => upload.current?.open()}>녹음 올리기</button>}
               </div>}
         </section>

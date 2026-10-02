@@ -49,7 +49,7 @@ export default function TasksPage() {
   return <AppShell section="tasks">
     <main className="page">
       <div className="page-head">
-        <div><h1>할 일</h1><p className="muted">승인된 회의에서 나온 할 일입니다. 완료하면 아침 브리핑의 기한 알림에서 빠집니다.</p></div>
+        <div><h1>할 일</h1><p className="muted">승인된 회의의 할 일 · 완료하면 아침 브리핑에서 빠집니다</p></div>
         <div className="row">
           <input className="input" style={{ width: 220 }} placeholder="할 일·회의 검색" value={query} onChange={e => setQuery(e.target.value)} aria-label="검색" />
           <select className="select" style={{ width: 140 }} value={owner} onChange={e => setOwner(e.target.value)} aria-label="담당자">
@@ -67,7 +67,7 @@ export default function TasksPage() {
       </div>
       <div className="card">
         {jobs === null ? <div className="empty"><span className="spin" aria-hidden /></div>
-          : !shown.length ? <div className="empty"><span className="empty-icon" aria-hidden>✅</span>
+          : !shown.length ? <div className="empty">
               <span>{tasks.length ? "조건에 맞는 할 일이 없습니다." : "아직 승인된 할 일이 없습니다. 회의를 검토·승인하면 여기에 모입니다."}</span></div>
           : <div className="table-wrap"><table className="table">
               <thead><tr><th style={{ width: 44 }}><span className="sr-only">완료</span></th><th>할 일</th><th>담당자</th><th>기한</th><th>우선순위</th><th>회의</th></tr></thead>
@@ -81,7 +81,7 @@ export default function TasksPage() {
                   <td>{t.assignee || <span className="subtle">미정</span>}</td>
                   <td><div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
                     <span>{t.due_date || <span className="subtle">미정</span>}</span>
-                    {due && <span className={`badge badge-plain ${due.tone}`}>{due.label}</span>}</div></td>
+                    {due && <span className={`badge ${due.tone}`}>{due.label}</span>}</div></td>
                   <td><PriorityBadge priority={t.priority} /></td>
                   <td><a href={`/?meeting=${t.job.id}`}>{t.job.title}</a></td>
                 </tr>;
