@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from datetime import date
 
@@ -131,6 +132,7 @@ async def publish(workspace, audit, storage, job: dict, artifact: str, requested
     else:
         section = drafts["confluence"]
         payload = {"title": section["title"], "body": confluence_body(job["summary"]), "suffix": job_id[:6],
+                   "parent_page_id": os.getenv("CONFLUENCE_MEETING_PARENT_PAGE_ID", "").strip(),
                    "result": section.get("result")}
     folder = next((path.parent.name for path in storage.base_dir.glob(f"*/{job_id}.*")), "workspace")
 

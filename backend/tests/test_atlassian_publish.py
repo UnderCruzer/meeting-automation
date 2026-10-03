@@ -120,6 +120,9 @@ def test_creates_minutes_page_in_the_space(atlassian_env, monkeypatch):
     assert result["url"] == "https://team.atlassian.net/wiki/spaces/DOC/pages/555"
     body = json.loads(calls[1].content)
     assert body["spaceId"] == "98" and body["body"] == {"representation": "storage", "value": "<p>요약</p>"}
+    assert "parentId" not in body
+    asyncio.run(write_queue._publish_confluence({**PAGE, "parent_page_id": "4100"}))
+    assert json.loads(calls[3].content)["parentId"] == "4100"
 
 
 def test_same_title_gets_a_suffix_and_retry_reuses_the_page(atlassian_env, monkeypatch):
