@@ -157,7 +157,7 @@ def test_without_token_approval_skips_slack(env, monkeypatch):
     app, posts = env
     monkeypatch.delenv("SLACK_BOT_TOKEN")
     client = TestClient(app)
-    assert client.get("/workspace/config").json() == {"slackPublishing": False}
+    assert client.get("/workspace/config").json()["slackPublishing"] is False
     assert "publish" not in client.post(f"/workspace/jobs/{JOB}/decision", json={"status": "approved"}).json()
     assert client.post(f"/workspace/jobs/{JOB}/publish", json={"now": True}).status_code == 409
     assert write_queue._queue.empty()
