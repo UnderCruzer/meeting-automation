@@ -14,6 +14,7 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path?: 
       !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && ["decision", "publish", "retry"].includes(path[2]) && req.method === "POST") &&
       !(path.length === 2 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && req.method === "DELETE") &&
       !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "action-items" && req.method === "PUT") &&
+      !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "drafts" && req.method === "PUT") &&
       !(path.length === 4 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "action-items" && /^\d{1,2}$/.test(path[3]) && req.method === "PATCH") &&
       !(path.length === 1 && path[0] === "briefing" && (req.method === "GET" || req.method === "POST")) &&
       !(path.length === 3 && path[0] === "jobs" && /^[a-f0-9]{32}$/.test(path[1]) && path[2] === "feedback" && (req.method === "GET" || req.method === "POST")) &&
