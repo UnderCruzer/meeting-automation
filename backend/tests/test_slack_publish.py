@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -20,7 +20,17 @@ SUMMARY = {"meeting_id": "m", "summary_ko": "출시 일정 확정", "summary_en"
            "action_items": [{"description": "릴리스 노트 작성", "assignee": "김민수", "due_date": "10/10"}],
            "quality_flags": [], "quality_ok": True}
 WORK_HOURS_KST = datetime(2026, 10, 1, 2, 0, tzinfo=timezone.utc)   # Thu 11:00 KST
-NIGHT_KST = datetime(2026, 10, 1, 13, 0, tzinfo=timezone.utc)       # Thu 22:00 KST
+
+def _next_thursday_night() -> datetime:
+    """Thu 22:00 KST in the future: the scheduled 09:00 send must still be ahead of the real clock,
+    because the Write Queue computes its wait from the actual time."""
+    day = datetime.now(timezone.utc).date() + timedelta(days=1)
+    while day.weekday() != 3:
+        day += timedelta(days=1)
+    return datetime(day.year, day.month, day.day, 13, 0, tzinfo=timezone.utc)
+
+
+NIGHT_KST = _next_thursday_night()
 _real_client = httpx.AsyncClient
 
 
@@ -85,7 +95,8 @@ def test_night_approval_is_scheduled_unless_publish_now(env, monkeypatch):
     client = TestClient(app)
     publish = client.post(f"/workspace/jobs/{JOB}/decision", json={"status": "approved"}).json()["publish"]
     assert publish["publish_status"] == "scheduled"
-    assert publish["publish_at"].startswith("2026-10-02T00:00")  # Fri 09:00 KST
+    friday_9am_kst = (NIGHT_KST + timedelta(hours=11)).strftime("%Y-%m-%dT%H:%M")
+    assert publish["publish_at"].startswith(friday_9am_kst)  # Fri 09:00 KST
     assert write_queue._queue.empty()  # waiting in the scheduler, not sent
     assert app.state.workspace.get(JOB)["publish_status"] == "scheduled"
     assert client.post(f"/workspace/jobs/{JOB}/publish", json={"now": True}).status_code == 409  # already pending
