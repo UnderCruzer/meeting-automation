@@ -41,17 +41,21 @@
 처음 설계한 22단계 워크플로를 기준으로 구현했습니다.
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph C["1~6 Capture"]
+    direction LR
     c1[캘린더 감지] --> c2[Slack DM] --> c3[녹음 준비 승인] --> c4[녹음 페이지] --> c6[업로드]
   end
   subgraph P["7~11 Processing"]
+    direction LR
     p7[STT] --> p8[개인정보 가림] --> p9[AI 분석] --> p11[요약·근거]
   end
   subgraph O["14~19 Outputs"]
+    direction LR
     o15[검토] --> o16[승인 게이트] --> o17[Write Queue] --> o18[시간대 판단] --> o19[지역 채널 게시]
   end
   subgraph F["20~22 Follow-up"]
+    direction LR
     f20[브리핑·다이제스트] --> f21[할 일 완료 추적] --> f22[품질 지표·피드백]
   end
   C --> P --> O --> F
