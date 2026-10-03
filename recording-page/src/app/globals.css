@@ -201,7 +201,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .page-head p { margin-top: 2px; }
 
 /* ── Meetings: list + detail ────────────────────────────── */
-.split { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+.split { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; scroll-margin-top: calc(var(--header-h) + 8px); }
 .sidebar { position: sticky; top: calc(var(--header-h) + 20px); display: grid; max-height: calc(100vh - var(--header-h) - 40px); }
 .sidebar-head { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .list { overflow: auto; display: grid; align-content: start; }
