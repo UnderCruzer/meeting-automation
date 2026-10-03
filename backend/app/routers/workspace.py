@@ -10,7 +10,7 @@ from app.routers.upload import retry_analysis
 from app.services.accounts import User
 from app.services.retention import delete_job
 from app.services.slack_publish import publish_job, slack_enabled
-from app.services import briefing, quality
+from app.services import atlassian_drafts, briefing, quality
 from app.services.workspace import JobBusyError
 from app.services.due_dates import team_timezone
 
@@ -22,6 +22,9 @@ class Decision(BaseModel):
     publish_now: bool = False
     # Per-artifact approval (workflow 16): approve the meeting but skip the Slack post
     publish_slack: bool = True
+    # Create the reviewed Jira issues / Confluence page (#82); individual drafts are chosen via PUT drafts
+    publish_jira: bool = True
+    publish_confluence: bool = True
 
 
 class ActionItemEdit(BaseModel):
@@ -41,11 +44,51 @@ class ActionItemsEdit(BaseModel):
 
 class PublishRequest(BaseModel):
     now: bool = True
+    target: Literal["slack", "jira", "confluence"] = "slack"
+
+
+class JiraDraftEdit(BaseModel):
+    include: bool
+    summary: str = Field(min_length=1, max_length=250)
+    description: str = Field("", max_length=5000)
+
+
+class ConfluenceDraftEdit(BaseModel):
+    include: bool
+    title: str = Field(min_length=1, max_length=200)
+
+
+class DraftsEdit(BaseModel):
+    jira: Optional[list[JiraDraftEdit]] = Field(None, max_length=atlassian_drafts.MAX_JIRA_DRAFTS)
+    confluence: Optional[ConfluenceDraftEdit] = None
 
 
 @router.get("/config")
 async def config():
-    return {"slackPublishing": slack_enabled()}
+    return {"slackPublishing": slack_enabled(), **atlassian_drafts.enabled()}
+
+
+@router.put("/jobs/{job_id}/drafts")
+async def edit_drafts(job_id: str, body: DraftsEdit, request: Request, user: Optional[User] = Depends(current_user)):
+    """Workflow 15 — pick and edit the Jira issues / Confluence page before approval."""
+    def apply(drafts: dict):
+        if body.jira is not None:
+            current = (drafts.get("jira") or {}).get("drafts", [])
+            if len(body.jira) != len(current):
+                return False
+            for draft, edit in zip(current, body.jira):
+                draft.update(include=edit.include, summary=edit.summary.strip(), description=edit.description.strip())
+        if body.confluence is not None:
+            if not drafts.get("confluence"):
+                return False
+            drafts["confluence"].update(include=body.confluence.include, title=body.confluence.title.strip())
+
+    if not await asyncio.to_thread(request.app.state.workspace.mutate_drafts, job_id, apply, "review"):
+        raise HTTPException(409, "검토 대기 중인 회의의 초안만 수정할 수 있습니다.")
+    title = await asyncio.to_thread(request.app.state.workspace.title, job_id)
+    await _audit(request, "edit", user.username if user else None, job_id=job_id, title=title,
+                 detail="Jira·Confluence 초안 수정")
+    return (await asyncio.to_thread(request.app.state.workspace.get, job_id))["drafts"]
 
 
 class BriefingRequest(BaseModel):
@@ -136,6 +179,14 @@ async def decide(job_id: str, decision: Decision, request: Request, user: Option
         result["publish"] = await publish_job(request.app.state.workspace, request.app.state.audit,
                                               request.app.state.storage, job,
                                               now=decision.publish_now, requested_by=username)
+    if decision.status == "approved":
+        job = await asyncio.to_thread(request.app.state.workspace.get, job_id)
+        on = atlassian_drafts.enabled()
+        for artifact, wanted in (("jira", decision.publish_jira), ("confluence", decision.publish_confluence)):
+            if wanted and on[artifact] and atlassian_drafts.has_pending(job.get("drafts"), artifact):
+                result[artifact] = await atlassian_drafts.publish(
+                    request.app.state.workspace, request.app.state.audit, request.app.state.storage,
+                    job, artifact, username)
     return result
 
 
@@ -185,6 +236,8 @@ async def retry(job_id: str, request: Request, background_tasks: BackgroundTasks
 @router.post("/jobs/{job_id}/publish")
 async def publish(job_id: str, body: PublishRequest, request: Request, user: Optional[User] = Depends(current_user)):
     """(Re)publish an approved meeting — e.g. after a failure or a restart dropped the schedule."""
+    if body.target != "slack":
+        return await _publish_atlassian(job_id, body.target, request, user)
     if not slack_enabled():
         raise HTTPException(409, "Slack 게시가 설정되지 않았습니다. 관리자에게 SLACK_BOT_TOKEN 설정을 요청하세요.")
     job = await asyncio.to_thread(request.app.state.workspace.get, job_id)
@@ -194,6 +247,22 @@ async def publish(job_id: str, body: PublishRequest, request: Request, user: Opt
         raise HTTPException(409, "이미 게시 대기 중입니다.")
     return await publish_job(request.app.state.workspace, request.app.state.audit, request.app.state.storage,
                              job, now=body.now, requested_by=user.username if user else None)
+
+
+async def _publish_atlassian(job_id: str, artifact: str, request: Request, user: Optional[User]):
+    name = "Jira" if artifact == "jira" else "Confluence"
+    if not atlassian_drafts.enabled()[artifact]:
+        raise HTTPException(409, f"{name} 연결이 설정되지 않았습니다. 관리자에게 Atlassian 설정을 요청하세요.")
+    job = await asyncio.to_thread(request.app.state.workspace.get, job_id)
+    if job is None or job["status"] != "approved":
+        raise HTTPException(409, "승인된 회의만 게시할 수 있습니다.")
+    section = (job.get("drafts") or {}).get(artifact) or {}
+    if section.get("status") == "queued":
+        raise HTTPException(409, "이미 생성 대기 중입니다.")
+    if not atlassian_drafts.has_pending(job.get("drafts"), artifact):
+        raise HTTPException(409, f"새로 만들 {name} 항목이 없습니다.")
+    return await atlassian_drafts.publish(request.app.state.workspace, request.app.state.audit,
+                                          request.app.state.storage, job, artifact, user.username if user else None)
 
 
 @router.delete("/jobs/{job_id}")
