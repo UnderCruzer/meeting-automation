@@ -90,10 +90,13 @@ async def _dispatch(task: WriteTask) -> None:
     last_error = "unknown"
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            if task.artifact == "jira":
-                result = await _publish_jira(task.payload)
-            elif task.artifact == "confluence":
-                result = await _publish_confluence(task.payload)
+            if task.artifact in ("jira", "confluence"):
+                try:
+                    publish = _publish_jira if task.artifact == "jira" else _publish_confluence
+                    result = await publish(task.payload)
+                except httpx.RequestError as exc:
+                    from app.services.atlassian import UNREACHABLE
+                    raise RuntimeError(UNREACHABLE) from exc
             elif task.artifact == "slack":
                 result = await _publish_slack(task.payload)
             elif task.artifact == "pdf":

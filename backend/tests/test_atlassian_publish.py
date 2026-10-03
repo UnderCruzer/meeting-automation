@@ -142,3 +142,25 @@ def test_not_configured_raises(monkeypatch):
     monkeypatch.delenv("JIRA_API_TOKEN", raising=False)
     with pytest.raises(RuntimeError, match="not configured"):
         asyncio.run(write_queue._publish_jira(_drafts()))
+
+
+def test_unreachable_site_and_bad_token_read_clearly(atlassian_env, monkeypatch, tmp_path):
+    from app.services import atlassian
+
+    def down(request):
+        raise httpx.ConnectError("[Errno -2] Name or service not known")
+
+    monkeypatch.setattr(write_queue.httpx, "AsyncClient",
+                        lambda **kw: _real_client(transport=httpx.MockTransport(down), **kw))
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(write_queue.asyncio, "sleep", lambda seconds: real_sleep(0))   # skip retry backoff
+    results = []
+
+    async def on_result(ok, detail):
+        results.append((ok, detail))
+
+    task = write_queue.WriteTask(job_id="j", meeting_id="m", artifact="jira", payload=_drafts(), base_dir=tmp_path,
+                                 on_result=on_result)
+    asyncio.run(write_queue._dispatch(task))
+    assert results == [(False, {"error": atlassian.UNREACHABLE})]
+    assert "인증 실패" in atlassian.error_message(httpx.Response(401, text="Unauthorized"))

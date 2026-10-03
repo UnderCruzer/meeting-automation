@@ -148,6 +148,12 @@ def error_fields(res: httpx.Response) -> set[str]:
 
 
 def error_message(res: httpx.Response) -> str:
+    if res.status_code in (401, 403):
+        return f"인증 실패(HTTP {res.status_code}) — 이메일·API 토큰과 프로젝트·스페이스 권한을 확인하세요"
+    return _body_message(res)
+
+
+def _body_message(res: httpx.Response) -> str:
     """Readable reason from Jira ({"errorMessages", "errors": {...}}) or Confluence v2 ({"errors": [...]})."""
     try:
         body = res.json() or {}
@@ -162,3 +168,6 @@ def error_message(res: httpx.Response) -> str:
     if body.get("message"):
         messages.append(str(body["message"]))
     return "; ".join(messages)[:300] or f"HTTP {res.status_code}"
+
+
+UNREACHABLE = "Atlassian 사이트에 연결하지 못했습니다 — ATLASSIAN_BASE_URL 주소를 확인하세요"
