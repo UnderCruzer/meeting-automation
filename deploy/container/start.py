@@ -14,7 +14,9 @@ import urllib.request
 
 
 _PROVIDER_SECRETS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY",
-                     "ADMIN_PASSWORD", "WORKSPACE_PASSWORD")
+                     "ADMIN_PASSWORD", "WORKSPACE_PASSWORD",
+                     # Atlassian (#82): only the backend searches and creates issues/pages
+                     "ATLASSIAN_API_TOKEN", "JIRA_API_TOKEN", "CONFLUENCE_API_TOKEN")
 
 
 def _env_without(names):

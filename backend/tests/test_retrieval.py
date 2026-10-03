@@ -115,7 +115,13 @@ class TestRetrieveContextMocked:
         assert len(ctx.items) == 1
         assert ctx.items[0].source == "jira"
         assert ctx.items[0].id == "PROJ-1"
+        assert ctx.items[0].snippet == "자동 배포 구성 필요"
+        assert ctx.items[0].status == "Open"
         assert "jira" in ctx.sources_searched
+        # The enhanced search endpoint (the old /search was removed), bounded to the project.
+        assert mock_client.post.call_args.args[0] == "https://jira.example.com/rest/api/3/search/jql"
+        jql = mock_client.post.call_args.kwargs["json"]["jql"]
+        assert jql.startswith('project = "PROJ" AND (text ~ "배포 일정" OR text ~ "API 설계" OR text ~ "배포 스크립트 작성")')
 
     @pytest.mark.asyncio
     async def test_failed_source_excluded_from_searched(self):
@@ -148,10 +154,10 @@ class TestRetrieveContextMocked:
         confluence_response = {
             "results": [
                 {
-                    "id": "12345",
-                    "title": "배포 가이드",
-                    "excerpt": "배포 절차 문서",
-                    "_links": {"webui": "/wiki/spaces/DOC/pages/12345"},
+                    "content": {"id": "12345", "type": "page", "title": "배포 가이드",
+                                "_links": {"webui": "/spaces/DOC/pages/12345"}},
+                    "title": "@@@hl@@@배포@@@endhl@@@ 가이드",
+                    "excerpt": "@@@hl@@@배포@@@endhl@@@ 절차 &amp; 문서",
                 }
             ]
         }
@@ -180,3 +186,9 @@ class TestRetrieveContextMocked:
         assert len(ctx.items) == 1
         assert ctx.items[0].source == "confluence"
         assert ctx.items[0].title == "배포 가이드"
+        assert ctx.items[0].snippet == "배포 절차 & 문서"
+        assert ctx.items[0].url == "https://confluence.example.com/wiki/spaces/DOC/pages/12345"
+        url = mock_client.get.call_args.args[0]
+        cql = mock_client.get.call_args.kwargs["params"]["cql"]
+        assert url == "https://confluence.example.com/wiki/rest/api/search"
+        assert cql.startswith('type = "page" AND space = "DOC" AND (text ~ "배포 일정" OR text ~ "API 설계"')

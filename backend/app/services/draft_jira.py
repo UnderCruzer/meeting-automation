@@ -34,7 +34,7 @@ _TOOL = {
                         "summary": {"type": "string"},
                         "description": {"type": "string"},
                         "issue_type": {"type": "string", "enum": ["Task", "Bug", "Story", "Epic"]},
-                        "priority": {"type": "string", "enum": ["Highest", "High", "Medium", "Low", "Lowest"]},
+                        "priority": {"type": "string", "enum": ["High", "Medium", "Low"]},
                         "assignee": {"type": "string"},
                         "labels": {"type": "array", "items": {"type": "string"}},
                     },
@@ -51,10 +51,12 @@ async def generate_jira_drafts(
     summary: MeetingSummary,
     analysis: OrchestratorOutput,
     context: RetrievalContext,
+    protect=lambda text: text,
 ) -> JiraDraftResult:
+    """`protect` masks text that did not come through the transcript guard (related issue titles)."""
     jira_items = [i for i in context.items if i.source == "jira"]
     existing_summary = "\n".join(
-        f"- [{i.id}] {i.title} ({i.url})" for i in jira_items
+        f"- [{i.id}] {protect(i.title)}" for i in jira_items
     ) or "없음"
 
     action_text = "\n".join(
@@ -77,9 +79,11 @@ async def generate_jira_drafts(
 {existing_summary}
 
 지침:
-- 기존 이슈와 명확히 연관된 action item은 해당 이슈에 comment로 생성하세요 (action=comment, existing_key 필수).
-- 새로운 작업은 create로 생성하세요.
-- description은 Jira wiki markup 형식으로 작성하세요.
+- Action Item마다 초안 하나, 최대 10개.
+- 위 "기존 관련 Jira 이슈"와 명확히 같은 작업이면 그 이슈에 comment로 작성하세요 (action=comment, existing_key는 목록의 키만).
+- 그 밖의 작업은 create로 작성하세요. summary는 80자 이내의 할 일 제목입니다.
+- description은 일반 텍스트로, 배경·담당·기한을 줄바꿈과 "- " 목록으로 정리하세요.
+- [PERSON_n] 같은 표기는 그대로 두세요.
 - 한국어로 작성하세요."""
 
     raw = await llm.generate_structured(

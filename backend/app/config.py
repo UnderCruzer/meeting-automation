@@ -22,8 +22,6 @@ _REQUIRED = {
 
 _OPTIONAL_WARN = {
     "OPENAI_API_KEY": "Whisper STT API (STT_BACKEND=whisper-api 시 필요)",
-    "JIRA_BASE_URL": "Jira 초안 배포",
-    "CONFLUENCE_BASE_URL": "Confluence 초안 배포",
     "BACKEND_API_KEY": "API 인증 (미설정 시 모든 엔드포인트 공개)",
 }
 
@@ -50,3 +48,9 @@ def validate_env() -> None:
             logger.warning(
                 "[Config] 선택 환경변수 미설정: %s — %s", key, _OPTIONAL_WARN[key]
             )
+
+    # Atlassian is enabled per product only when site, e-mail, token and project/space are all set (#82).
+    from app.services import atlassian
+    jira, confluence = atlassian.jira_site(), atlassian.confluence_site()
+    logger.info("[Config] Jira: %s · Confluence: %s",
+                f"프로젝트 {jira.scope}" if jira else "미연결", f"스페이스 {confluence.scope}" if confluence else "미연결")

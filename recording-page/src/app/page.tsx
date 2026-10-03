@@ -5,14 +5,14 @@ import MeetingList from "@/components/MeetingList";
 import MeetingDetail from "@/components/MeetingDetail";
 import UploadDialog, { type UploadDialogHandle } from "@/components/UploadDialog";
 import { useToast } from "@/components/Toast";
-import type { Job } from "@/lib/workspace";
+import type { Integrations, Job } from "@/lib/workspace";
 import { api } from "@/lib/workspace";
 
 export default function MeetingsPage() {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [selected, setSelected] = useState("");
   const [ephemeral, setEphemeral] = useState(false);
-  const [slack, setSlack] = useState(false);
+  const [integrations, setIntegrations] = useState<Integrations>({ slack: false, jira: false, confluence: false });
   const upload = useRef<UploadDialogHandle>(null);
   const toast = useToast();
 
@@ -22,8 +22,9 @@ export default function MeetingsPage() {
 
   useEffect(() => {
     let active = true;
-    api<{ ephemeral: boolean; slackPublishing?: boolean }>("/api/workspace/config")
-      .then(c => { if (active) { setEphemeral(c.ephemeral); setSlack(!!c.slackPublishing); } }).catch(() => {});
+    api<{ ephemeral: boolean; slackPublishing?: boolean; jira?: boolean; confluence?: boolean }>("/api/workspace/config")
+      .then(c => { if (active) { setEphemeral(c.ephemeral);
+        setIntegrations({ slack: !!c.slackPublishing, jira: !!c.jira, confluence: !!c.confluence }); } }).catch(() => {});
     let failed = false;
     const load = () => refresh().then(() => { failed = false; }).catch(e => {
       if (active && !failed) { failed = true; toast(e.message, "error"); }
@@ -70,7 +71,7 @@ export default function MeetingsPage() {
         </aside>
         <section className="detail-pane" aria-live="polite">
           {current
-            ? <MeetingDetail key={current.id} job={current} slack={slack} onChanged={refresh}
+            ? <MeetingDetail key={current.id} job={current} integrations={integrations} onChanged={refresh}
                 onDeleted={() => { setSelected(""); refresh().catch(() => {}); }} onBack={() => setSelected("")} />
             : <div className="card empty">
                 <strong>{jobs?.length ? "왼쪽에서 회의를 선택하세요" : "첫 회의 녹음을 올려보세요"}</strong>

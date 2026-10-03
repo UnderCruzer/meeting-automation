@@ -9,6 +9,7 @@ class RetrievalItem(BaseModel):
     url: str
     snippet: str          # short excerpt or description
     relevance: float = 1.0
+    status: str = ""     # Jira issue status
 
 
 class RetrievalContext(BaseModel):

@@ -229,6 +229,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .item-grid { display: grid; grid-template-columns: minmax(0, 1fr) 130px 110px 92px auto; gap: 8px; align-items: end; }
 .quote { margin: 0; padding: 2px 0 2px 10px; border-left: 2px solid var(--border-strong); color: var(--text-2); font-size: 12.5px; }
 .quote-missing { border-left-color: var(--warning); color: var(--text-3); }
+.related summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; }
+.related[open] summary { margin-bottom: 6px; }
+.related .badge { font-size: 11px; }
 
 .actionbar {
   position: sticky; bottom: 0; z-index: 5;

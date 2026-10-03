@@ -1,17 +1,21 @@
 "use client";
 import { useState } from "react";
-import type { Job } from "@/lib/workspace";
+import type { Integrations, Job } from "@/lib/workspace";
 import { FAILURE_REASONS, SLACK_HINTS, api, displayActor, dueState, formatWhen, jsonInit } from "@/lib/workspace";
 import StatusBadge, { PriorityBadge } from "@/components/StatusBadge";
 import ActionItemsEditor from "@/components/ActionItemsEditor";
 import FeedbackCard from "@/components/FeedbackCard";
+import AtlassianDrafts from "@/components/AtlassianDrafts";
 import { useToast } from "@/components/Toast";
 
-export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack }: {
-  job: Job; slack: boolean; onChanged: () => Promise<void>; onDeleted: () => void; onBack: () => void;
+export default function MeetingDetail({ job, integrations, onChanged, onDeleted, onBack }: {
+  job: Job; integrations: Integrations; onChanged: () => Promise<void>; onDeleted: () => void; onBack: () => void;
 }) {
+  const slack = integrations.slack;
   const [busy, setBusy] = useState(false);
   const [publishSlack, setPublishSlack] = useState(true);
+  const [publishJira, setPublishJira] = useState(true);
+  const [publishConfluence, setPublishConfluence] = useState(true);
   const [publishNow, setPublishNow] = useState(false);
   const toast = useToast();
   const summary = job.summary;
@@ -23,10 +27,17 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
     finally { setBusy(false); }
   }
 
+  // Saved drafts decide what approval creates; unchecking here skips a whole product.
+  const jiraCount = integrations.jira ? (job.drafts?.jira?.drafts ?? []).filter(d => d.include).length : 0;
+  const confluenceOn = integrations.confluence && !!job.drafts?.confluence?.include;
+  const outputs = [slack && publishSlack && "Slack", jiraCount > 0 && publishJira && "Jira",
+    confluenceOn && publishConfluence && "Confluence"].filter(Boolean) as string[];
+
   const decide = (status: "approved" | "rejected") => run(
-    () => api(`/api/workspace/jobs/${job.id}/decision`, jsonInit("POST", { status, publish_now: publishNow, publish_slack: publishSlack }),
-      "이미 처리된 회의이거나 저장하지 못했습니다."),
-    status === "approved" ? (slack && publishSlack ? "승인했습니다. Slack 게시를 진행합니다." : "승인했습니다.") : "거절했습니다.");
+    () => api(`/api/workspace/jobs/${job.id}/decision`, jsonInit("POST", {
+      status, publish_now: publishNow, publish_slack: publishSlack, publish_jira: publishJira, publish_confluence: publishConfluence,
+    }), "이미 처리된 회의이거나 저장하지 못했습니다."),
+    status === "approved" ? (outputs.length ? `승인했습니다. ${outputs.join("·")} 게시를 진행합니다.` : "승인했습니다.") : "거절했습니다.");
 
   async function remove() {
     if (!window.confirm(`"${job.title}" 회의와 분석 결과를 삭제할까요? 되돌릴 수 없습니다.`)) return;
@@ -97,6 +108,8 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
       </section>
     </>}
 
+    {summary && job.drafts && <AtlassianDrafts job={job} onChanged={onChanged} />}
+
     {summary && <FeedbackCard key={`fb-${job.id}`} jobId={job.id} />}
 
     {job.status !== "processing" && <div className="panel-section danger-zone">
@@ -106,14 +119,19 @@ export default function MeetingDetail({ job, slack, onChanged, onDeleted, onBack
     </div>
 
     {job.status === "review" && <div className="actionbar">
-      {slack ? <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 240 }}>
-        <label className="check"><input type="checkbox" checked={publishSlack} onChange={e => setPublishSlack(e.target.checked)} /><span>Slack 채널에 게시</span></label>
-        <label className="check"><input type="checkbox" disabled={!publishSlack} checked={publishNow} onChange={e => setPublishNow(e.target.checked)} />
-          <span>지금 바로 게시 <span className="subtle">(끄면 근무시간 외에는 다음 근무 시작에 게시)</span></span></label>
+      {slack || jiraCount > 0 || confluenceOn ? <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 240 }}>
+        {slack && <>
+          <label className="check"><input type="checkbox" checked={publishSlack} onChange={e => setPublishSlack(e.target.checked)} /><span>Slack 채널에 게시</span></label>
+          <label className="check"><input type="checkbox" disabled={!publishSlack} checked={publishNow} onChange={e => setPublishNow(e.target.checked)} />
+            <span>지금 바로 게시 <span className="subtle">(끄면 근무시간 외에는 다음 근무 시작에 게시)</span></span></label></>}
+        {jiraCount > 0 && <label className="check"><input type="checkbox" checked={publishJira} onChange={e => setPublishJira(e.target.checked)} />
+          <span>Jira에 {jiraCount}건 만들기</span></label>}
+        {confluenceOn && <label className="check"><input type="checkbox" checked={publishConfluence} onChange={e => setPublishConfluence(e.target.checked)} />
+          <span>Confluence 회의록 만들기</span></label>}
       </div> : <span className="subtle" style={{ flex: 1 }}>승인하면 할 일 목록에 보관됩니다.</span>}
       <button className="btn btn-danger" disabled={busy} onClick={() => decide("rejected")}>거절</button>
       <button className="btn btn-primary btn-lg" disabled={busy} onClick={() => decide("approved")}>
-        {slack && publishSlack ? "승인하고 Slack에 게시" : "승인"}</button>
+        {outputs.length ? `승인하고 ${outputs.join("·")}에 게시` : "승인"}</button>
     </div>}
   </article>;
 }

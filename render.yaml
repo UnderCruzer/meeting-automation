@@ -25,7 +25,7 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
-      # Slack 채널 게시(선택) — 비워두면 게시하지 않음. README "Slack 채널 게시" 참고
+      # Slack 채널 게시(선택) — 비워두면 게시하지 않음. docs/OPERATIONS.md "Slack 채널 게시" 참고
       - key: SLACK_BOT_TOKEN
         sync: false
       - key: SLACK_BRIEF_CHANNEL
@@ -42,6 +42,17 @@ services:
         sync: false
       - key: DEFAULT_TIMEZONE
         value: Asia/Seoul
+      # 워크플로 10·12·13 Jira·Confluence (선택) — docs/OPERATIONS.md "Jira·Confluence 연결"
+      - key: ATLASSIAN_BASE_URL
+        sync: false
+      - key: ATLASSIAN_EMAIL
+        sync: false
+      - key: ATLASSIAN_API_TOKEN
+        sync: false
+      - key: JIRA_PROJECT_KEY
+        sync: false
+      - key: CONFLUENCE_SPACE_KEY
+        sync: false
       # 워크플로 4: Slack DM 녹음 링크 서명 키 (봇과 웹이 공유) — 자동 생성
       - key: RECORDING_LINK_SECRET
         generateValue: true

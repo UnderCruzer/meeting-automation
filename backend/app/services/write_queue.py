@@ -11,7 +11,6 @@ import asyncio
 import json
 import logging
 import os
-from base64 import b64encode
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,10 +90,13 @@ async def _dispatch(task: WriteTask) -> None:
     last_error = "unknown"
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            if task.artifact == "jira":
-                result = await _publish_jira(task.payload)
-            elif task.artifact == "confluence":
-                result = await _publish_confluence(task.payload)
+            if task.artifact in ("jira", "confluence"):
+                try:
+                    publish = _publish_jira if task.artifact == "jira" else _publish_confluence
+                    result = await publish(task.payload)
+                except httpx.RequestError as exc:
+                    from app.services.atlassian import UNREACHABLE
+                    raise RuntimeError(UNREACHABLE) from exc
             elif task.artifact == "slack":
                 result = await _publish_slack(task.payload)
             elif task.artifact == "pdf":
@@ -144,76 +146,95 @@ async def _report(task: WriteTask, ok: bool, detail: Any) -> None:
 
 
 async def _publish_jira(payload: dict) -> dict:
-    base_url = os.getenv("JIRA_BASE_URL", "").rstrip("/")
-    project = os.getenv("JIRA_PROJECT_KEY", "")
-    token = os.getenv("JIRA_API_TOKEN", "")
-    email = os.getenv("JIRA_EMAIL", "")
-    if not all([base_url, project, token, email]):
-        raise RuntimeError("Jira credentials not configured")
+    """Create issues / add comments for the approved drafts (workflow 12).
 
-    auth = b64encode(f"{email}:{token}".encode()).decode()
-    headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
-    results = []
+    Each finished draft records its result in the payload, so a retry after a partial failure
+    continues with the rest instead of creating the same issues again.
+    """
+    from app.services import atlassian
+
+    site = atlassian.jira_site()
+    if site is None:
+        raise RuntimeError("Jira not configured")
 
     async with httpx.AsyncClient(timeout=30) as client:
         for draft in payload.get("drafts", []):
-            if draft["action"] == "create":
-                body = {
-                    "fields": {
-                        "project": {"key": project},
-                        "summary": draft["summary"],
-                        "description": {"type": "doc", "version": 1,
-                                        "content": [{"type": "paragraph", "content":
-                                                     [{"type": "text", "text": draft["description"]}]}]},
-                        "issuetype": {"name": draft.get("issue_type", "Task")},
-                        "priority": {"name": draft.get("priority", "Medium")},
-                    }
-                }
-                resp = await client.post(f"{base_url}/rest/api/3/issue", json=body, headers=headers)
-                resp.raise_for_status()
-                results.append({"action": "created", "key": resp.json().get("key")})
-            elif draft["action"] == "comment" and draft.get("existing_key"):
-                body = {"body": {"type": "doc", "version": 1,
-                                 "content": [{"type": "paragraph", "content":
-                                              [{"type": "text", "text": draft["description"]}]}]}}
+            if draft.get("result"):
+                continue
+            if draft["action"] == "comment":
+                if not atlassian.valid_issue_key(draft.get("existing_key", ""), site.scope):
+                    raise RuntimeError(f"issue {draft.get('existing_key')!r} is outside project {site.scope}")
                 resp = await client.post(
-                    f"{base_url}/rest/api/3/issue/{draft['existing_key']}/comment",
-                    json=body, headers=headers,
+                    f"{site.base_url}/rest/api/3/issue/{draft['existing_key']}/comment",
+                    json={"body": atlassian.to_adf(draft["description"])}, headers=site.headers(),
                 )
-                resp.raise_for_status()
-                results.append({"action": "commented", "key": draft["existing_key"]})
+                if resp.is_error:
+                    raise RuntimeError(f"Jira comment failed: {atlassian.error_message(resp)}")
+                draft["result"] = {"action": "commented", "key": draft["existing_key"],
+                                   "url": f"{site.base_url}/browse/{draft['existing_key']}"}
+                continue
 
-    return {"results": results}
+            fields = {
+                "project": {"key": site.scope},
+                "summary": draft["summary"][:250],
+                "description": atlassian.to_adf(draft["description"]),
+                "issuetype": {"name": atlassian.jira_issue_type()},
+                "priority": {"name": draft.get("priority") or "Medium"},
+                "labels": [atlassian.LABEL],
+            }
+            resp = await client.post(f"{site.base_url}/rest/api/3/issue", json={"fields": fields},
+                                     headers=site.headers())
+            rejected = atlassian.error_fields(resp) & set(atlassian.OPTIONAL_JIRA_FIELDS) if resp.status_code == 400 else set()
+            if rejected:
+                # e.g. team-managed projects without a priority field — create without them.
+                for name in rejected:
+                    fields.pop(name, None)
+                resp = await client.post(f"{site.base_url}/rest/api/3/issue", json={"fields": fields},
+                                         headers=site.headers())
+            if resp.is_error:
+                raise RuntimeError(f"Jira create failed: {atlassian.error_message(resp)}")
+            key = resp.json().get("key")
+            draft["result"] = {"action": "created", "key": key, "url": f"{site.base_url}/browse/{key}"}
+
+    return {"results": [d["result"] for d in payload.get("drafts", []) if d.get("result")]}
 
 
 async def _publish_confluence(payload: dict) -> dict:
-    base_url = os.getenv("CONFLUENCE_BASE_URL", "").rstrip("/")
-    token = os.getenv("CONFLUENCE_API_TOKEN", "")
-    email = os.getenv("CONFLUENCE_EMAIL", "")
-    if not all([base_url, token, email]):
-        raise RuntimeError("Confluence credentials not configured")
+    """Create the meeting-minutes page in the configured space (workflow 13, Confluence v2 API)."""
+    from app.services import atlassian
 
-    space_key = payload.get("space_key") or os.getenv("CONFLUENCE_SPACE_KEY", "")
-    if not space_key:
-        raise RuntimeError("Confluence space_key not configured")
-
-    auth = b64encode(f"{email}:{token}".encode()).decode()
-    headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
-    body = {
-        "type": "page",
-        "title": payload["title"],
-        "space": {"key": space_key},
-        "body": {"storage": {"value": payload["body"], "representation": "storage"}},
-    }
-    if payload.get("parent_page_id"):
-        body["ancestors"] = [{"id": payload["parent_page_id"]}]
+    if payload.get("result"):
+        return payload["result"]
+    site = atlassian.confluence_site()
+    if site is None:
+        raise RuntimeError("Confluence not configured")
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(f"{base_url}/wiki/rest/api/content", json=body, headers=headers)
-        resp.raise_for_status()
+        resp = await client.get(f"{site.base_url}/wiki/api/v2/spaces", params={"keys": site.scope},
+                                headers=site.headers())
+        spaces = resp.json().get("results", []) if resp.is_success else []
+        if not spaces:
+            raise RuntimeError(f"Confluence space {site.scope} not found ({atlassian.error_message(resp)})")
+
+        titles = [payload["title"], f"{payload['title']} ({payload.get('suffix') or 'meeting'})"]
+        for title in titles:
+            body = {"spaceId": spaces[0]["id"], "status": "current", "title": title[:255],
+                    "body": {"representation": "storage", "value": payload["body"]}}
+            if payload.get("parent_page_id"):
+                body["parentId"] = payload["parent_page_id"]
+            resp = await client.post(f"{site.base_url}/wiki/api/v2/pages", json=body, headers=site.headers())
+            # Page titles are unique per space: a same-titled meeting gets the suffixed title.
+            if resp.status_code == 400 and "title" in atlassian.error_message(resp).lower() and title != titles[-1]:
+                continue
+            break
+        if resp.is_error:
+            raise RuntimeError(f"Confluence create failed: {atlassian.error_message(resp)}")
         data = resp.json()
 
-    return {"page_id": data.get("id"), "url": f"{base_url}{data.get('_links', {}).get('webui', '')}"}
+    links = data.get("_links") or {}
+    payload["result"] = {"page_id": data.get("id"), "title": data.get("title"),
+                         "url": f"{links.get('base') or site.base_url + '/wiki'}{links.get('webui', '')}"}
+    return payload["result"]
 
 
 async def _publish_slack(payload: dict) -> dict:
