@@ -26,7 +26,9 @@ class Workspace:
                            # Failure reason code and the masked transcript kept for "다시 분석" (#75)
                            "error_code", "retry_payload",
                            # Quality metrics (#84)
-                           "finished_at", "confidence", "quality_ok"):
+                           "finished_at", "confidence", "quality_ok",
+                           # Jira / Confluence search results and drafts (#82)
+                           "drafts"):
                 if column not in existing:
                     kind = {"confidence": "REAL", "quality_ok": "INTEGER"}.get(column, "TEXT")
                     db.execute(f"ALTER TABLE jobs ADD COLUMN {column} {kind}")
@@ -45,13 +47,29 @@ class Workspace:
         with self.connect() as db:
             db.execute("INSERT INTO jobs(id,title,status,uploaded_by) VALUES (?,?,'processing',?)", (job_id,title,uploaded_by))
 
-    def finish(self, job_id, summary, confidence=None):
+    def finish(self, job_id, summary, confidence=None, drafts=None):
         quality_ok = summary.get("quality_ok") if isinstance(summary, dict) else None
         with self.connect() as db:
             db.execute("UPDATE jobs SET status='review',summary=?,error_code=NULL,retry_payload=NULL,"
-                       " finished_at=CURRENT_TIMESTAMP, confidence=?, quality_ok=? WHERE id=? AND status='processing'",
+                       " finished_at=CURRENT_TIMESTAMP, confidence=?, quality_ok=?, drafts=?"
+                       " WHERE id=? AND status='processing'",
                        (json.dumps(summary,ensure_ascii=False), confidence,
-                        None if quality_ok is None else int(bool(quality_ok)), job_id))
+                        None if quality_ok is None else int(bool(quality_ok)),
+                        json.dumps(drafts, ensure_ascii=False) if drafts else None, job_id))
+
+    def mutate_drafts(self, job_id, apply, status=None):
+        """Read-modify-write the drafts JSON in one transaction. `apply(drafts)` edits in place and may
+        return False to abort. `status` restricts the change to jobs in that state. Returns True if saved."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT status, drafts FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None or not row["drafts"] or (status and row["status"] != status):
+                return False
+            drafts = json.loads(row["drafts"])
+            if apply(drafts) is False:
+                return False
+            db.execute("UPDATE jobs SET drafts=? WHERE id=?", (json.dumps(drafts, ensure_ascii=False), job_id))
+        return True
 
     def fail(self, job_id, code="FAILED"):
         with self.connect() as db:
@@ -81,6 +99,13 @@ class Workspace:
             # Queued/scheduled Slack posts lived in memory and are gone after a restart.
             db.execute("UPDATE jobs SET publish_status='failed', publish_error='서버 재시작으로 게시 예약이 취소되었습니다.'"
                        " WHERE publish_status IN ('queued','scheduled')")
+            # Same for queued Jira / Confluence creation.
+            for row in db.execute("SELECT id, drafts FROM jobs WHERE drafts LIKE '%\"queued\"%'").fetchall():
+                drafts = json.loads(row["drafts"])
+                for section in (drafts.get("jira"), drafts.get("confluence")):
+                    if section and section.get("status") == "queued":
+                        section.update(status="failed", error="서버 재시작으로 생성 대기가 취소되었습니다.")
+                db.execute("UPDATE jobs SET drafts=? WHERE id=?", (json.dumps(drafts, ensure_ascii=False), row["id"]))
 
     def list(self):
         with self.connect() as db:
@@ -90,6 +115,7 @@ class Workspace:
     @staticmethod
     def _public(row):
         job = {**dict(row), "summary": json.loads(row["summary"]) if row["summary"] else None}
+        job["drafts"] = json.loads(job["drafts"]) if job.get("drafts") else None
         job["can_retry"] = job.pop("retry_payload", None) is not None and job["status"] == "failed"
         # Resolved due date (free text → calendar date, relative to the meeting day) for UI and briefings.
         meeting_day = local_date(job.get("created_at"))
