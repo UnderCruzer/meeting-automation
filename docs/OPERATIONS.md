@@ -24,7 +24,7 @@ Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 
 3. 배포 완료 후 서비스 **Environment** 탭에서 `ADMIN_PASSWORD`를 확인하고, `https://<서비스 이름>.onrender.com`에 사용자 이름 `admin`으로 로그인합니다. 로그인 후 비밀번호를 바꾸고 팀원 계정을 만드세요. (무료 플랜은 재시작 시 데이터가 초기화되어 계정도 다시 `ADMIN_PASSWORD`로 만들어집니다.)
 
 - 프런트엔드와 백엔드를 하나의 컨테이너(`deploy/container/Dockerfile`)에서 실행하며, 백엔드는 외부에 노출되지 않습니다. `/api/healthz`만 인증 없이 응답합니다(상태만 반환).
-- `main` 브랜치를 배포합니다(작업은 `develop`에 모은 뒤 `main`으로 올림).
+- `develop` 브랜치를 배포합니다(`render.yaml`의 `branch`). 이미 만든 서비스는 대시보드 **Settings → Build & Deploy → Branch**와 Blueprint의 브랜치도 `develop`으로 맞춥니다. Blueprint는 연결된 브랜치의 `render.yaml`을 읽습니다.
 - `onrender.com`은 Cloudflare를 거치므로 Blueprint가 `CLIENT_IP_HEADER=cf-connecting-ip`를 설정합니다. 로그인 실패 제한·업로드 제한·감사 기록이 실제 접속자 IP 기준으로 동작합니다.
 - **무료 인스턴스는 15분 미사용 시 잠들고(첫 접속 약 1분), 디스크를 붙일 수 없어 재시작·재배포·잠들기 시 파일이 지워집니다.** 아래 "데이터 보존·백업"의 Litestream 백업을 켜면 무료 플랜에서도 회의·계정·감사 기록이 유지됩니다.
 - 업로드와 전사는 스트리밍으로 처리해 녹음 길이와 관계없이 메모리가 일정합니다(512MB 제한에서 150분 녹음 확인). 한 번에 올릴 수 있는 녹음은 500MB(약 4시간)까지입니다. 브라우저가 녹음을 WAV로 변환하므로 매우 긴 파일은 사용자 기기 메모리를 많이 씁니다.
