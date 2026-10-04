@@ -12,8 +12,20 @@ COPY slack-bot/package.json slack-bot/package-lock.json ./
 RUN npm ci --omit=dev
 COPY slack-bot/src ./src
 
+FROM python:3.11-slim-bookworm AS litestream
+# Optional continuous SQLite backup to S3-compatible storage (#85). Pinned and checksum-verified.
+ARG TARGETARCH
+ARG LITESTREAM_VERSION=0.5.17
+ADD https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-${LITESTREAM_VERSION}-linux-x86_64.tar.gz /tmp/litestream-amd64.tar.gz
+ADD https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-${LITESTREAM_VERSION}-linux-arm64.tar.gz /tmp/litestream-arm64.tar.gz
+RUN echo "cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d  /tmp/litestream-amd64.tar.gz" | sha256sum -c - \
+ && echo "f8ca4a050095c1efbda2c4365172e61bf9d955ea0d9ac42f448b52e51819baa5  /tmp/litestream-arm64.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/litestream-${TARGETARCH:-amd64}.tar.gz -C /usr/local/bin litestream \
+ && /usr/local/bin/litestream version
+
 FROM python:3.11-slim-bookworm
 RUN useradd --create-home --uid 1000 workspace
+COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream
 COPY --from=ui /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 COPY backend/requirements.txt /app/requirements.txt
