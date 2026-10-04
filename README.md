@@ -38,7 +38,7 @@
 
 ## 워크플로와 구현 현황
 
-처음 설계한 22단계 워크플로를 기준으로 구현했습니다.
+처음 설계한 22단계 워크플로를 기준으로 구현했습니다. Slack·Jira·Confluence는 연결한 것만 동작합니다.
 
 ```mermaid
 flowchart TB
@@ -48,11 +48,11 @@ flowchart TB
   end
   subgraph P["7~11 Processing"]
     direction LR
-    p7[STT] --> p8[개인정보 가림] --> p9[AI 분석] --> p11[요약·근거]
+    p7[STT] --> p8[개인정보 가림] --> p9[AI 분석] --> p10[지정 프로젝트·스페이스 검색] --> p11[요약·근거]
   end
-  subgraph O["14~19 Outputs"]
+  subgraph O["12~19 Outputs"]
     direction LR
-    o15[검토] --> o16[승인 게이트] --> o17[Write Queue] --> o18[시간대 판단] --> o19[지역 채널 게시]
+    o12[Jira·Confluence 초안] --> o15[검토] --> o16[승인 게이트] --> o17[Write Queue] --> o18[시간대 판단] --> o19[Slack 지역 채널 · Jira · Confluence]
   end
   subgraph F["20~22 Follow-up"]
     direction LR
@@ -69,11 +69,11 @@ flowchart TB
 | 7 STT | ✅ | Groq/OpenAI Whisper, 25MB 제한 대응 10분 청크, 화자 분리(선택) |
 | 8 가드 | ✅ | 정규식 PII 마스킹 + **이름 가명 처리** |
 | 9 AI 분석 | ✅ | Gemini(기본)/Claude, JSON 스키마 강제, 재시도·예비 모델 |
-| 10 지정 소스 검색 | ⏸ | 코드 있음 — Jira·Confluence 연결 시 ([#82](https://github.com/UnderCruzer/meeting-automation/issues/82)) |
+| 10 지정 소스 검색 | 🔶 | 지정한 Jira 프로젝트·Confluence 스페이스만 검색 — 모의 서버로 검증, 실제 사이트 연결 확인 전 ([#82](https://github.com/UnderCruzer/meeting-automation/issues/82)) |
 | 11 요약 | ✅ | 근거 인용, 품질 경고, 실명 복원 |
-| 12~13 Jira·Confluence 초안 | ⏸ | [#82](https://github.com/UnderCruzer/meeting-automation/issues/82) |
+| 12~13 Jira·Confluence 초안 | 🔶 | 할 일별 이슈 초안(관련 이슈엔 댓글), 회의록 페이지 → 검토·승인 후 생성 — 위와 같음 |
 | 14 Slack Brief | ✅ | 요약·결정·할 일, 한국어/영어 |
-| 15~16 검토·승인 | ✅ | 할 일 수정(담당·기한·우선순위), 산출물별 게시 선택 |
+| 15~16 검토·승인 | ✅ | 할 일·Jira 초안 수정, Slack·Jira·Confluence 산출물별 선택 |
 | 17~19 발송 | ✅ | Write Queue(재시도·예약), 근무시간 판단, NA/EU/APAC 채널 |
 | 20~21 브리핑·후속 | ✅ | 평일 09:00 Morning Brief, 월요일 Weekly Digest, 기한 해석, 완료 추적 |
 | 22 품질 | ✅ | 요약 피드백, 지표, 이상 경고, 주간 품질 리포트 |
@@ -101,6 +101,9 @@ Slack DM의 녹음 링크는 회의·사용자·만료 시각을 HMAC으로 서�
 | 75분 | 137MB | **OOM 종료** | 115MB |
 | 150분 | 275MB | 364~420MB | 118MB |
 
+**Jira·Confluence는 지정한 곳에만, 중복 없이**
+검색은 설정한 프로젝트·스페이스로 고정하고, AI가 제안한 댓글 대상도 검색으로 찾은 그 프로젝트의 이슈일 때만 허용합니다. Jira에서 가져온 이슈 제목은 전사문 가드를 거치지 않았으므로 AI에 보내기 전에 개인정보 패턴과 참석자 이름을 따로 가립니다. Write Queue는 실패하면 다시 시도하는데, 여러 이슈 중 일부만 만들어진 상태에서 다시 시도하면 같은 이슈가 또 생길 수 있었습니다. 그래서 초안마다 결과를 기록해 두고, 다시 시도할 때는 남은 것만 만듭니다. 기존 코드가 쓰던 Jira 검색 API(`/rest/api/3/search`)는 이미 제거되어 새 API로 바꿨고, 무료 팀 프로젝트에 없는 필드(우선순위 등)는 빼고 다시 만듭니다. ([#82](https://github.com/UnderCruzer/meeting-automation/issues/82))
+
 **실서버에서 만난 장애**
 첫 실사용에서 Gemini가 503(혼잡)을 냈습니다. 429·5xx·타임아웃 지수 백오프(`Retry-After` 존중), 예비 모델 전환, 실패 사유 코드, 재업로드 없는 "다시 분석"을 넣었습니다. Slack 게시 실패 원인이 보이지 않던 문제, INFO 로그가 아예 출력되지 않던 설정, 게시 성공 후 후처리 오류로 **같은 메시지를 다시 보낼 수 있던 버그**도 이 과정에서 고쳤습니다. ([#75](https://github.com/UnderCruzer/meeting-automation/issues/75), [#77](https://github.com/UnderCruzer/meeting-automation/issues/77))
 
@@ -122,12 +125,13 @@ Slack DM의 녹음 링크는 회의·사용자·만료 시각을 HMAC으로 서�
 | 웹 | Next.js 16 · React 19 · TypeScript, CSS 토큰(라이트/다크), Pretendard |
 | 백엔드 | FastAPI · Python 3.11, SQLite, asyncio Write Queue·스케줄러 |
 | Slack 봇 | Node 24 · Slack Bolt(Socket Mode) · node-ical |
+| 연동 | Slack Web API, Jira Cloud REST v3, Confluence REST (CQL 검색·v2 페이지) |
 | AI | Groq/OpenAI Whisper(전사), Gemini(기본)·Claude(분석) |
 | 배포 | 단일 Docker 컨테이너, Render Blueprint, GitHub Actions(CI·절전 방지 핑) |
 
 ## 테스트
 
-- 백엔드 **301개**(pytest): 파이프라인 단계·실패 코드, 개인정보 가림·이름 가명, 서명 링크·인증·CSRF, 스트리밍 업로드, Write Queue 예약·중복 방지, 기한 해석, 브리핑, 품질 지표
+- 백엔드 **335개**(pytest): 파이프라인 단계·실패 코드, Jira·Confluence 검색 범위·중복 없는 재시도, 개인정보 가림·이름 가명, 서명 링크·인증·CSRF, 스트리밍 업로드, Write Queue 예약·중복 방지, 기한 해석, 브리핑, 품질 지표
 - Slack 봇 **8개**(`node --test`): ICS 반복 일정·예외일, 봇 서명 ↔ 웹 검증 상호 확인
 - CI: 백엔드 테스트, `tsc`, Next 프로덕션 빌드, `pip-audit`, `npm audit`
 - 수동 검증: 512MB 제한 컨테이너(장시간 녹음 메모리), 브라우저(라이트·다크·모바일), 실서버(Render)에서 끝까지 한 번
@@ -135,15 +139,15 @@ Slack DM의 녹음 링크는 회의·사용자·만료 시각을 HMAC으로 서�
 ## 실행
 
 ```bash
-cp .env.example .env    # BACKEND_API_KEY, ADMIN_PASSWORD, GEMINI_API_KEY, GROQ_API_KEY
+cp .env.example backend/.env   # GEMINI_API_KEY, GROQ_API_KEY (선택: SLACK_*, ATLASSIAN_*)
+printf 'BACKEND_API_KEY=%s\nADMIN_PASSWORD=%s\n' "$(openssl rand -hex 24)" "관리자-비밀번호-10자이상" > .env
 docker compose -f compose.standalone.yml up --build -d
 ```
 
-`http://localhost:3001` 에서 `admin`으로 로그인합니다. Render 원클릭 배포, Slack·캘린더 연결, 환경변수 전체는 [docs/OPERATIONS.md](docs/OPERATIONS.md)를 보세요.
+`http://localhost:3001` 에서 `admin`으로 로그인합니다. Render 원클릭 배포, Slack·캘린더·Jira·Confluence 연결, 환경변수 전체는 [docs/OPERATIONS.md](docs/OPERATIONS.md)를 보세요.
 
 ## 한계와 다음 단계
 
-- **Jira·Confluence 연결** ([#82](https://github.com/UnderCruzer/meeting-automation/issues/82)): 지정 소스 검색, 초안 생성, 승인 후 생성. 코드 일부는 있고 계정 연결이 남았습니다.
 - **영구 저장소·백업** ([#85](https://github.com/UnderCruzer/meeting-automation/issues/85)): 지금은 무료 플랜이라 재시작하면 초기화됩니다.
 - **화상회의 자동 참여 없음**: 대면 회의(브라우저 녹음)와 파일 업로드만 지원합니다.
 - **근거 연결과 이름 탐지의 한계**: 근거 연결은 키워드 기반이고, 이름은 호칭이나 참석자 목록이 있어야 잡힙니다.

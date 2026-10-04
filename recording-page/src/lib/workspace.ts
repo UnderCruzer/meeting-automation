@@ -19,12 +19,30 @@ export function dueState(due?: string | null, done?: boolean): { label: string; 
   return { label: `D-${days}`, tone: "" };
 }
 
+export type ArtifactStatus = "queued" | "sent" | "failed" | null;
+export type JiraDraft = {
+  action: "create" | "comment"; existing_key: string; summary: string; description: string; priority: string;
+  include: boolean; result?: { action: string; key: string; url: string } | null;
+};
+/** Jira / Confluence search results and drafts kept with the meeting (workflow 10·12·13). */
+export type Drafts = {
+  related: { source: "jira" | "confluence" | "slack"; id: string; title: string; url: string; snippet: string; status?: string }[];
+  jira?: { drafts: JiraDraft[]; status: ArtifactStatus; error: string | null; generation_error: string | null };
+  confluence?: { title: string; include: boolean; status: ArtifactStatus; error: string | null;
+    result: { page_id: string; title: string; url: string } | null };
+};
+export type Integrations = { slack: boolean; jira: boolean; confluence: boolean };
+
+/** Only links to the Atlassian site the server built — never javascript: or other schemes. */
+export const safeUrl = (url?: string | null) => (url && /^https:\/\//.test(url) ? url : undefined);
+
 export type Job = {
   id: string; title: string; status: "processing" | "review" | "approved" | "rejected" | "failed";
   uploaded_by?: string | null; decided_by?: string | null; decided_at?: string | null; created_at?: string;
   publish_status?: "queued" | "scheduled" | "sent" | "failed" | null; publish_at?: string | null;
   published_at?: string | null; publish_error?: string | null;
   error_code?: string | null; can_retry?: boolean;
+  drafts?: Drafts | null;
   summary: null | {
     summary_ko: string; decisions: { text: string }[]; action_items: ActionItem[]; quality_flags: { message: string }[];
   };

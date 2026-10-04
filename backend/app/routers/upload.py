@@ -3,6 +3,7 @@ import asyncio
 import os
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
@@ -13,6 +14,8 @@ from app.routers.auth import Uploader, upload_actor
 from app.models.transcript import TranscriptResult, TranscriptSegment
 from app.storage.local import AudioSizeError
 from app.services.workspace import Workspace
+from app.services import atlassian_drafts
+from app.services.due_dates import team_timezone
 from app.services.guard import mask_transcript_segments, save_guard_report
 from app.services.llm import LLMUnavailable
 from app.services.name_guard import pseudonymise_segments, unmask_model
@@ -155,9 +158,17 @@ async def _analyse_and_deliver(workspace: Workspace, job_id: str, retry: dict, b
     summary = unmask_model(masked_summary, name_tokens)
     await save_summary(summary, file_key, base_dir)
 
-    await asyncio.to_thread(workspace.finish, job_id, summary.model_dump(), analysis.confidence)
     if os.getenv("WORKSPACE_MODE") == "standalone":
+        # Workflow 10·12·13: search the configured Jira project / Confluence space and draft
+        # issues + minutes for review. Nothing is created until a reviewer approves.
+        drafts = None
+        if summary.quality_ok:
+            title = await asyncio.to_thread(workspace.title, job_id) or ""
+            drafts = await atlassian_drafts.prepare(analysis, masked_summary, name_tokens, title,
+                                                    datetime.now(team_timezone()).date())
+        await asyncio.to_thread(workspace.finish, job_id, summary.model_dump(), analysis.confidence, drafts)
         return
+    await asyncio.to_thread(workspace.finish, job_id, summary.model_dump(), analysis.confidence)
 
     # Bounded retrieval — fetch related Jira/Confluence/Slack context
     context = await retrieve_context(analysis)

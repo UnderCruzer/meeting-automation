@@ -26,6 +26,7 @@ flowchart LR
   STT["Groq / OpenAI Whisper"]
   LLM["Gemini (기본) / Claude"]
   SLACK["Slack"]
+  ATL["Jira · Confluence<br/>(지정 프로젝트·스페이스)"]
   CAL["Google·Outlook 캘린더 (ICS)"]
 
   UI -- "세션 쿠키" --> WEB
@@ -36,6 +37,7 @@ flowchart LR
   API -- "원본 음성" --> STT
   API -- "가린 전사문만" --> LLM
   API -- "승인된 결과" --> SLACK
+  API -- "검색 · 승인된 이슈·회의록" --> ATL
   BOT -- "회의 감지" --> CAL
   BOT -- "DM·버튼" --> SLACK
 ```
@@ -43,10 +45,10 @@ flowchart LR
 | 프로세스 | 역할 | 비밀값 |
 |---|---|---|
 | `web` (Next.js) | 화면, 인증·CSRF·보안 헤더(proxy), 백엔드 프록시, 녹음 업로드 스트리밍 | 백엔드 API 키, 녹음 링크 서명 키 |
-| `api` (FastAPI) | 파이프라인, 승인, Write Queue, 스케줄러(브리핑·품질 점검·보존 기간) | LLM·STT 키, 관리자 초기 비밀번호, Slack 토큰 |
+| `api` (FastAPI) | 파이프라인, 승인, Write Queue, 스케줄러(브리핑·품질 점검·보존 기간) | LLM·STT 키, 관리자 초기 비밀번호, Slack·Atlassian 토큰 |
 | `bot` (Slack Bolt) | 캘린더 감지 → 회의 5분 전 DM → 녹음 준비 버튼 → 서명 링크 발송 | Slack 토큰, 캘린더 ICS 주소, 링크 서명 키 |
 
-`deploy/container/start.py`가 세 프로세스를 띄우고, 각 프로세스에는 필요한 비밀값만 넘깁니다. 웹 프로세스는 LLM·Slack 키를 받지 않습니다.
+`deploy/container/start.py`가 세 프로세스를 띄우고, 각 프로세스에는 필요한 비밀값만 넘깁니다. 웹 프로세스는 LLM·Slack·Atlassian 키를 받지 않습니다.
 
 ## 회의 한 건의 흐름
 
@@ -59,6 +61,7 @@ sequenceDiagram
   participant A as 백엔드
   participant AI as STT·LLM
   participant S as Slack
+  participant J as Jira·Confluence
 
   B->>U: 회의 5분 전 DM (참석자 현지 시간)
   U->>B: 녹음 준비
@@ -68,10 +71,16 @@ sequenceDiagram
   A->>AI: 음성 → 전사 (10분 단위 청크)
   A->>A: 개인정보 정규식 마스킹 + 이름 가명 처리, 원본 녹음 삭제
   A->>AI: 가린 전사문 → 구조화 분석 (재시도·예비 모델)
-  A->>A: 근거 인용 연결·품질 판정, 실명 복원 → "검토 대기"
-  U->>W: 검토·할 일 수정·승인
+  A->>A: 근거 인용 연결·품질 판정, 실명 복원
+  opt Atlassian 연결 시
+    A->>J: 지정 프로젝트·스페이스 검색
+    A->>AI: 가명 요약 + 가린 이슈 제목 → Jira 초안
+  end
+  A->>A: "검토 대기"
+  U->>W: 검토·할 일·초안 수정·산출물별 승인
   A->>A: Write Queue (근무시간 판단 → 즉시/예약)
   A->>S: 지역 채널에 회의 요약 게시
+  A->>J: 고른 Jira 이슈·Confluence 회의록 생성
   A->>S: 평일 09:00 Morning Brief · 월요일 Weekly Digest
 ```
 
@@ -84,6 +93,8 @@ sequenceDiagram
 | 보호 | 주민번호·카드·전화·이메일·비밀번호 마스킹 → 참석자·호칭 기반 이름을 `[PERSON_n]`으로 | — |
 | 분석 | Gemini `responseSchema` / Claude `tool_use`로 JSON 강제, 429·5xx·타임아웃 지수 백오프 + `Retry-After`, 예비 모델 | `LLM_BUSY`·`ANALYSIS_FAILED` — **가린 전사문만 보관해 "다시 분석" 가능** |
 | 요약 | 키워드 기반 근거 인용(가린 전사문에서), 품질 플래그, 서버 안에서 실명 복원 | — |
+| 검색·초안 | 지정 프로젝트·스페이스만 검색, Jira 초안(가명 요약), Confluence 제목 | 검색·초안 실패해도 회의는 검토 대기 (초안 없이) |
+| Jira·Confluence 생성 | 승인 후 Write Queue, 초안별 결과 기록, 없는 필드 제외 재시도 | 실패 이유 표시, 남은 항목만 다시 생성 |
 | 재시작 | 처리 중이던 작업은 `RESTARTED`, 예약 게시는 실패로 전환 | 화면에 이유 표시 |
 
 ## 데이터
@@ -92,7 +103,7 @@ SQLite 파일 하나(`workspace.sqlite3`)에 저장합니다. 무료 호스팅�
 
 | 테이블 | 내용 |
 |---|---|
-| `jobs` | 회의 상태(processing/review/approved/rejected/failed), 요약 JSON(할 일·완료 여부 포함), 업로드·결정한 사람, 처리 시각, AI 신뢰도, 실패 코드, 재분석용 가린 전사문, Slack 게시 상태 |
+| `jobs` | 회의 상태(processing/review/approved/rejected/failed), 요약 JSON(할 일·완료 여부 포함), 업로드·결정한 사람, 처리 시각, AI 신뢰도, 실패 코드, 재분석용 가린 전사문, Slack 게시 상태, Jira·Confluence 검색 결과·초안·생성 결과(`drafts`) |
 | `users` / `sessions` | scrypt 해시 비밀번호, 역할, 세션 토큰의 SHA-256만 저장 |
 | `audit_events` | 누가·언제·무엇을·어느 IP에서 (회의를 지워도 제목만 남김) |
 | `feedback` | 사용자당 회의 1건의 요약 평가, 회의 삭제 시 함께 삭제 |
@@ -123,7 +134,7 @@ flowchart LR
 
 | 루프 | 주기 | 내용 |
 |---|---|---|
-| Write Queue | 상시 | 3회 지수 백오프, 예약 시각까지 대기, 발송 직전 재확인(삭제·승인 취소 시 건너뜀), 성공 후 중복 발송 방지 |
+| Write Queue | 상시 | Slack·Jira·Confluence. 3회 지수 백오프, 예약 시각까지 대기, 발송 직전 재확인(삭제·승인 취소 시 건너뜀), 성공 후 중복 발송 방지 |
 | 브리핑 | 1분마다 확인 | 평일 09:00(팀 시간대)·정오까지 보충, 월요일 주간 다이제스트 |
 | 품질 점검 | 1시간 | 실패율·AI 혼잡·부정 피드백·신뢰도 → 관리자 채널(하루 1회) |
 | 보존 기간 | 6시간 | `MEETING_RETENTION_DAYS`가 지난 회의 삭제 |
@@ -135,7 +146,8 @@ flowchart LR
 | `POST /upload` | 녹음 업로드(스트리밍) → 파이프라인 |
 | `GET /workspace/jobs` · `DELETE /workspace/jobs/{id}` | 회의 목록(해석된 기한 포함)·삭제 |
 | `PUT /workspace/jobs/{id}/action-items` · `PATCH …/action-items/{n}` | 승인 전 할 일 수정 · 승인 후 완료 처리 |
-| `POST /workspace/jobs/{id}/decision` · `…/publish` · `…/retry` | 승인/거절(+Slack 게시 선택) · 재게시 · 재분석 |
+| `PUT /workspace/jobs/{id}/drafts` | 승인 전 Jira 초안 선택·수정, Confluence 제목 |
+| `POST /workspace/jobs/{id}/decision` · `…/publish` · `…/retry` | 승인/거절(+Slack·Jira·Confluence 선택) · 재게시(`target`) · 재분석 |
 | `GET·POST /workspace/jobs/{id}/feedback` | 요약 평가 |
 | `GET /workspace/metrics` · `GET·POST /workspace/briefing` | 품질 지표 · 브리핑 미리 보기/발송 (관리자) |
 | `/auth/*` | 로그인·로그아웃·비밀번호·사용자 관리·감사 기록 |
@@ -143,7 +155,7 @@ flowchart LR
 ## 디렉터리
 
 ```
-backend/            FastAPI — routers/, services/(파이프라인·LLM·브리핑·품질), tests/ (301개)
+backend/            FastAPI — routers/, services/(파이프라인·LLM·Atlassian·브리핑·품질), tests/
 recording-page/     Next.js 16 — app/(화면), pages/api/upload.ts(스트리밍), lib/(gate·session·grant), proxy.ts
 slack-bot/          Slack Bolt — services/calendar/(ICS·Graph), handlers/, test/ (node --test)
 deploy/container/   단일 컨테이너 Dockerfile·start.py
