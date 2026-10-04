@@ -1,5 +1,6 @@
-# Render Blueprint — 단일 팀 체험용 독립형 워크스페이스 (무료 플랜)
-# 무료 인스턴스는 15분 미사용 시 잠들고, 재시작·재배포·잠들기 시 데이터가 초기화됩니다.
+# Render Blueprint — 단일 팀 독립형 워크스페이스 (무료 플랜)
+# 무료 인스턴스는 15분 미사용 시 잠들고 디스크를 붙일 수 없습니다. LITESTREAM_* 백업을 켜면
+# 재시작·재배포·잠들기 후에도 백업에서 복원합니다 (docs/OPERATIONS.md "데이터 보존·백업").
 services:
   - type: web
     name: meeting-automation
@@ -9,6 +10,11 @@ services:
     dockerfilePath: ./deploy/container/Dockerfile
     dockerContext: .
     healthCheckPath: /api/healthz
+    # 유료(starter)로 바꿀 때 디스크를 쓰려면 plan: starter 와 아래 블록을 켜고 WORKSPACE_STORAGE=persistent 추가
+    # disk:
+    #   name: meeting-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
     autoDeployTrigger: commit
     envVars:
       - key: LLM_PROVIDER
@@ -52,6 +58,17 @@ services:
       - key: JIRA_PROJECT_KEY
         sync: false
       - key: CONFLUENCE_SPACE_KEY
+        sync: false
+      # 데이터 백업 (선택, #85) — Backblaze B2 등 S3 호환 저장소. 버킷·키가 모두 있어야 켜짐
+      - key: LITESTREAM_BUCKET
+        sync: false
+      - key: LITESTREAM_ENDPOINT
+        sync: false
+      - key: LITESTREAM_REGION
+        sync: false
+      - key: LITESTREAM_ACCESS_KEY_ID
+        sync: false
+      - key: LITESTREAM_SECRET_ACCESS_KEY
         sync: false
       # 워크플로 4: Slack DM 녹음 링크 서명 키 (봇과 웹이 공유) — 자동 생성
       - key: RECORDING_LINK_SECRET

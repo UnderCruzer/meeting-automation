@@ -77,7 +77,7 @@ flowchart TB
 | 17~19 발송 | ✅ | Write Queue(재시도·예약), 근무시간 판단, NA/EU/APAC 채널 |
 | 20~21 브리핑·후속 | ✅ | 평일 09:00 Morning Brief, 월요일 Weekly Digest, 기한 해석, 완료 추적 |
 | 22 품질 | ✅ | 요약 피드백, 지표, 이상 경고, 주간 품질 리포트 |
-| 운영 | 🔶 | 개인 계정·감사 기록·백업 제외 운영 기능 완료, 영구 저장소는 [#85](https://github.com/UnderCruzer/meeting-automation/issues/85) |
+| 운영 | 🔶 | 개인 계정·감사 기록, Litestream 백업·시점 복원·장애 알림 — MinIO로 검증, 실제 B2 연결 확인 전 ([#85](https://github.com/UnderCruzer/meeting-automation/issues/85)) |
 
 ## 설계에서 고민한 것
 
@@ -111,7 +111,7 @@ Slack DM의 녹음 링크는 회의·사용자·만료 시각을 HMAC으로 서�
 개인 계정(scrypt, 세션 토큰은 해시만 저장)과 CSRF 차단을 넣었습니다. CSP·HSTS 등 보안 헤더를 적용하고, 로그인 실패와 업로드를 IP별로 제한합니다. Render(Cloudflare) 뒤에서는 실제 접속자 IP를 식별합니다. 의존성 감사는 CI에 넣었고, 감사 기록은 회의를 삭제해도 남습니다. ([#58](https://github.com/UnderCruzer/meeting-automation/issues/58), [#66](https://github.com/UnderCruzer/meeting-automation/issues/66), [#67](https://github.com/UnderCruzer/meeting-automation/issues/67), [#71](https://github.com/UnderCruzer/meeting-automation/issues/71))
 
 **무료 호스팅이라는 제약**
-재시작하면 데이터가 사라지고, 15분 동안 요청이 없으면 서버가 잠듭니다. 그래서 정기 작업은 DB 기록으로 하루 한 번만 실행되게 하고, 잠들어 있다 깨어나면 정오까지 놓친 작업을 보충합니다. 재시작으로 사라진 게시 예약은 "실패"로 표시해 다시 보낼 수 있게 했습니다. 서버가 잠들지 않게 하는 주기적 핑(GitHub Actions)은 선택 사항입니다. ([#79](https://github.com/UnderCruzer/meeting-automation/issues/79), [#83](https://github.com/UnderCruzer/meeting-automation/issues/83))
+무료 인스턴스는 디스크를 붙일 수 없어 재시작하면 파일이 사라지고, 15분 동안 요청이 없으면 서버가 잠듭니다. 데이터는 전부 SQLite 파일 하나에 있으므로, Litestream으로 이 파일을 무료 오브젝트 스토리지(Backblaze B2)에 1초 간격으로 복제하고 시작할 때 복원합니다. 이때 복원에 실패하면 빈 DB로 시작하지 않고 멈춥니다. 빈 DB가 복제되면 백업을 덮어쓸 수 있기 때문입니다. 정기 작업은 DB 기록으로 하루 한 번만 실행되게 하고, 잠들어 있다 깨어나면 정오까지 놓친 작업을 보충합니다. 재시작으로 사라진 게시 예약은 "실패"로 표시해 다시 보낼 수 있게 했습니다. 서버가 잠들지 않게 하는 주기적 핑(GitHub Actions)은 선택 사항입니다. ([#79](https://github.com/UnderCruzer/meeting-automation/issues/79), [#83](https://github.com/UnderCruzer/meeting-automation/issues/83), [#85](https://github.com/UnderCruzer/meeting-automation/issues/85))
 
 **지표는 실제 처리 결과로**
 기존 모니터링은 "실패율"을 발송 시도 횟수로 세서, 전사·분석 실패가 실패율에 잡히지 않았습니다. 그래서 회의 처리 결과·감사 기록·피드백을 기준으로 다시 계산합니다. 표본이 3건 미만이면 경고하지 않습니다. ([#84](https://github.com/UnderCruzer/meeting-automation/issues/84))
@@ -127,7 +127,7 @@ Slack DM의 녹음 링크는 회의·사용자·만료 시각을 HMAC으로 서�
 | Slack 봇 | Node 24 · Slack Bolt(Socket Mode) · node-ical |
 | 연동 | Slack Web API, Jira Cloud REST v3, Confluence REST (CQL 검색·v2 페이지) |
 | AI | Groq/OpenAI Whisper(전사), Gemini(기본)·Claude(분석) |
-| 배포 | 단일 Docker 컨테이너, Render Blueprint, GitHub Actions(CI·절전 방지 핑) |
+| 배포 | 단일 Docker 컨테이너, Render Blueprint, GitHub Actions(CI·상태 확인·장애 알림), Litestream → Backblaze B2 백업 |
 
 ## 테스트
 
@@ -135,6 +135,7 @@ Slack DM의 녹음 링크는 회의·사용자·만료 시각을 HMAC으로 서�
 - Slack 봇 **8개**(`node --test`): ICS 반복 일정·예외일, 봇 서명 ↔ 웹 검증 상호 확인
 - CI: 백엔드 테스트, `tsc`, Next 프로덕션 빌드, `pip-audit`, `npm audit`
 - 수동 검증: 512MB 제한 컨테이너(장시간 녹음 메모리), 브라우저(라이트·다크·모바일), 실서버(Render)에서 끝까지 한 번
+- 백업: 로컬 MinIO로 컨테이너 삭제·강제 종료 후 복원, 시점 복원, 되돌리기, 잘못된 키에서 시작 거부
 
 ## 실행
 
@@ -148,7 +149,7 @@ docker compose -f compose.standalone.yml up --build -d
 
 ## 한계와 다음 단계
 
-- **영구 저장소·백업** ([#85](https://github.com/UnderCruzer/meeting-automation/issues/85)): 지금은 무료 플랜이라 재시작하면 초기화됩니다.
+- **무료 플랜의 한계**: 15분 미사용 시 잠들고(첫 접속 약 1분), 강제 종료되면 마지막 1초 안팎의 변경을 잃을 수 있습니다. 처리 중이던 녹음은 백업 대상이 아니라 다시 올려야 합니다.
 - **화상회의 자동 참여 없음**: 대면 회의(브라우저 녹음)와 파일 업로드만 지원합니다.
 - **근거 연결과 이름 탐지의 한계**: 근거 연결은 키워드 기반이고, 이름은 호칭이나 참석자 목록이 있어야 잡힙니다.
 - **웹 E2E 테스트 없음**: 웹 화면은 타입 검사와 빌드, 수동 브라우저 확인으로만 검증했습니다.

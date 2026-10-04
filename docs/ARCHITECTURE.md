@@ -5,7 +5,7 @@
 
 ## 구성 요소
 
-하나의 컨테이너에서 세 프로세스가 돌고, 외부에 열린 포트는 웹 서버 하나입니다.
+하나의 컨테이너에서 세 프로세스(+ 백업을 켜면 Litestream)가 돌고, 외부에 열린 포트는 웹 서버 하나입니다.
 
 ```mermaid
 flowchart LR
@@ -20,6 +20,7 @@ flowchart LR
     API["FastAPI 백엔드<br/>127.0.0.1:8000 (내부 전용)"]
     BOT["Slack 봇<br/>Socket Mode (선택)"]
     DB[("SQLite<br/>회의·계정·세션·감사·피드백")]
+    LS["Litestream<br/>(백업, 선택)"]
     FS[("파일<br/>처리 중 녹음·분석 산출물")]
   end
 
@@ -33,6 +34,8 @@ flowchart LR
   REC -- "서명된 녹음 링크" --> WEB
   WEB -- "API 키 + 세션 토큰 / 검증된 업로더" --> API
   API --- DB
+  LS -- "복제·시작 시 복원" --> B2[("Backblaze B2")]
+  DB -.-> LS
   API --- FS
   API -- "원본 음성" --> STT
   API -- "가린 전사문만" --> LLM
@@ -47,8 +50,9 @@ flowchart LR
 | `web` (Next.js) | 화면, 인증·CSRF·보안 헤더(proxy), 백엔드 프록시, 녹음 업로드 스트리밍 | 백엔드 API 키, 녹음 링크 서명 키 |
 | `api` (FastAPI) | 파이프라인, 승인, Write Queue, 스케줄러(브리핑·품질 점검·보존 기간) | LLM·STT 키, 관리자 초기 비밀번호, Slack·Atlassian 토큰 |
 | `bot` (Slack Bolt) | 캘린더 감지 → 회의 5분 전 DM → 녹음 준비 버튼 → 서명 링크 발송 | Slack 토큰, 캘린더 ICS 주소, 링크 서명 키 |
+| `litestream` (선택) | 시작 전 복원, SQLite 실시간 복제. 반복해서 멈추면 관리자 채널에 알림 | 백업 저장소 키 |
 
-`deploy/container/start.py`가 세 프로세스를 띄우고, 각 프로세스에는 필요한 비밀값만 넘깁니다. 웹 프로세스는 LLM·Slack·Atlassian 키를 받지 않습니다.
+`deploy/container/start.py`가 세 프로세스를 띄우고, 각 프로세스에는 필요한 비밀값만 넘깁니다. 웹 프로세스는 LLM·Slack·Atlassian 키를 받지 않고, 백업 키는 Litestream만 받습니다. 종료할 때는 백엔드를 먼저 내리고 Litestream을 마지막에 내려 마지막 변경까지 동기화합니다.
 
 ## 회의 한 건의 흐름
 
@@ -99,7 +103,7 @@ sequenceDiagram
 
 ## 데이터
 
-SQLite 파일 하나(`workspace.sqlite3`)에 저장합니다. 무료 호스팅은 재시작 시 초기화됩니다([#85](https://github.com/UnderCruzer/meeting-automation/issues/85)).
+SQLite 파일 하나(`workspace.sqlite3`, WAL 모드)에 저장합니다. 백업을 켜면 Litestream이 이 파일을 S3 호환 저장소(Backblaze B2)에 1초 간격으로 복제하고, 컨테이너가 새로 뜰 때 백업에서 복원한 뒤 백엔드를 시작합니다. 복원에 실패하면 시작하지 않습니다([#85](https://github.com/UnderCruzer/meeting-automation/issues/85), 절차는 [OPERATIONS](OPERATIONS.md#데이터-보존백업-운영-전환)).
 
 | 테이블 | 내용 |
 |---|---|
