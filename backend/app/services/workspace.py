@@ -11,6 +11,9 @@ class Workspace:
     def __init__(self, base_dir):
         self.path = Path(base_dir) / "workspace.sqlite3"
         with self.connect() as db:
+            # WAL (persistent in the file): readers don't block the writer, and Litestream
+            # replicates the WAL to object storage when backups are on (#85).
+            db.execute("PRAGMA journal_mode=WAL")
             db.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, summary TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
             # Added with accounts: who uploaded and who decided (older databases are migrated in place).
             # One row per briefing per day — makes the daily schedule idempotent (#83).

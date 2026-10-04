@@ -50,3 +50,10 @@ def test_decision_api_rejects_duplicates_and_invalid_values(tmp_path):
         assert client.post("/workspace/jobs/one/decision", json={"status": "approved"}).status_code == 200
         assert client.post("/workspace/jobs/one/decision", json={"status": "approved"}).status_code == 409
         assert client.post("/workspace/jobs/missing/decision", json={"status": "rejected"}).status_code == 409
+
+
+def test_database_uses_wal_for_backups(tmp_path):
+    from app.services.workspace import Workspace
+    store = Workspace(tmp_path)
+    with store.connect() as db:
+        assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"

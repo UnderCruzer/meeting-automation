@@ -24,9 +24,9 @@ Slack 계정 없이 **녹음 업로드 → 전사·분석 → 근거 확인 → 
 3. 배포 완료 후 서비스 **Environment** 탭에서 `ADMIN_PASSWORD`를 확인하고, `https://<서비스 이름>.onrender.com`에 사용자 이름 `admin`으로 로그인합니다. 로그인 후 비밀번호를 바꾸고 팀원 계정을 만드세요. (무료 플랜은 재시작 시 데이터가 초기화되어 계정도 다시 `ADMIN_PASSWORD`로 만들어집니다.)
 
 - 프런트엔드와 백엔드를 하나의 컨테이너(`deploy/container/Dockerfile`)에서 실행하며, 백엔드는 외부에 노출되지 않습니다. `/api/healthz`만 인증 없이 응답합니다(상태만 반환).
-- main에 머지하면 자동 재배포됩니다.
+- `main` 브랜치를 배포합니다(작업은 `develop`에 모은 뒤 `main`으로 올림).
 - `onrender.com`은 Cloudflare를 거치므로 Blueprint가 `CLIENT_IP_HEADER=cf-connecting-ip`를 설정합니다. 로그인 실패 제한·업로드 제한·감사 기록이 실제 접속자 IP 기준으로 동작합니다.
-- **무료 인스턴스는 15분 미사용 시 잠들고(첫 접속 약 1분), 재시작·재배포·잠들기 시 회의와 녹음이 초기화됩니다.** 보존이 필요하면 유료 플랜 + Persistent Disk(`/app/data`)나 위 Compose 구성을 사용합니다.
+- **무료 인스턴스는 15분 미사용 시 잠들고(첫 접속 약 1분), 디스크를 붙일 수 없어 재시작·재배포·잠들기 시 파일이 지워집니다.** 아래 "데이터 보존·백업"의 Litestream 백업을 켜면 무료 플랜에서도 회의·계정·감사 기록이 유지됩니다.
 - 업로드와 전사는 스트리밍으로 처리해 녹음 길이와 관계없이 메모리가 일정합니다(512MB 제한에서 150분 녹음 확인). 한 번에 올릴 수 있는 녹음은 500MB(약 4시간)까지입니다. 브라우저가 녹음을 WAV로 변환하므로 매우 긴 파일은 사용자 기기 메모리를 많이 씁니다.
 
 ## Hugging Face 배포
@@ -89,6 +89,94 @@ Slack 게시가 설정되어 있으면 백엔드가 팀 시간대(`WORKSPACE_TIM
 - **지표**: 관리 > **품질 지표**(최근 7/30일) — 업로드·처리 성공률·실패 유형, 처리 시간, 승인율·승인까지 시간, 승인 전 수정 비율, 할 일 완료율·기한 지남, 평균 AI 신뢰도·품질 경고, 긍정 피드백·지적된 문제, Slack 게시 성공률
 - **경고·주간 리포트**: 최근 24시간 실패율(`ALERT_FAILURE_RATE`, 기본 30%)·AI 혼잡 반복, 최근 7일 부정 피드백·평균 신뢰도(`ALERT_MIN_CONFIDENCE`, 기본 0.6) 이상을 지표 화면에 표시하고, `MONITOR_ALERT_CHANNEL`(관리자 채널 ID)이 있으면 하루 1회 알림·월요일 주간 품질 리포트를 보냅니다. 적은 표본(3건 미만)은 경고하지 않습니다.
 
+## 데이터 보존·백업 (운영 전환)
+
+화면에 보이는 모든 상태(회의·요약·초안·계정·세션·감사 기록·피드백)는 SQLite 파일 하나(`/app/data/recordings/workspace.sqlite3`)에 있습니다. 원본 녹음은 처리 후 지우므로, 이 파일만 지키면 됩니다.
+
+| 방식 | 월 비용 | 데이터 유지 | 백업 | 비고 |
+|---|---|---|---|---|
+| **무료 + Litestream → Backblaze B2** (현재) | $0 (B2 10GB 무료, 카드 불필요) | 시작할 때 백업에서 복원 | 1초 간격 복제, 7일 시점 복원 | 15분 미사용 시 잠듦(절전 방지 핑 권장) |
+| Render Starter + Persistent Disk | 약 $7.25 (Starter $7 + 1GB $0.25) | 디스크에 그대로 | Litestream을 함께 켜면 외부 백업 | 잠들지 않음, 디스크가 있으면 무중단 배포 불가 |
+| 내 서버 + Compose (`compose.standalone.yml`) | 서버 비용 | `meeting-data` 볼륨 | 볼륨 백업 직접 | — |
+
+### Litestream 백업 켜기 (Backblaze B2)
+
+1. [Backblaze B2](https://www.backblaze.com/sign-up/cloud-storage) 가입 → **Buckets → Create a Bucket**(비공개). 버킷 화면의 **Endpoint**(예: `s3.us-west-004.backblazeb2.com`)를 확인합니다. Lifecycle은 "Keep only the last version", 암호화(Default Encryption)는 켜 두기를 권장합니다.
+2. **Application Keys → Add a New Application Key**에서 그 버킷만 읽기·쓰기로 키를 만듭니다. `keyID`와 `applicationKey`는 한 번만 보이므로 바로 Render에 넣습니다(채팅·저장소에 붙여넣지 마세요).
+3. Render 환경변수:
+   - `LITESTREAM_BUCKET`: 버킷 이름
+   - `LITESTREAM_ENDPOINT`: `https://s3.us-west-004.backblazeb2.com`
+   - `LITESTREAM_REGION`: `us-west-004` (엔드포인트 가운데 부분)
+   - `LITESTREAM_ACCESS_KEY_ID`: `keyID`
+   - `LITESTREAM_SECRET_ACCESS_KEY`: `applicationKey`
+   - 선택: `LITESTREAM_PATH`(버킷 안 경로, 기본 `meeting-automation`), `LITESTREAM_RETENTION`(시점 복원 가능 기간, 기본 `168h`)
+4. 재배포 후 로그에 `backup on — no backup yet, starting fresh`(첫 실행) 또는 `restored the database from backup`이 보이면 동작 중입니다. 화면 상단의 "체험용 서버" 경고도 사라집니다.
+
+동작 방식:
+
+- **시작:** 로컬 DB가 없으면 백업에서 복원한 뒤 백엔드를 띄웁니다. 백업이 아직 없으면(첫 실행) 빈 DB로 시작합니다.
+- **복원 실패:** 키가 틀렸거나 저장소에 연결할 수 없으면 서버를 시작하지 않습니다. 빈 DB로 시작해 복제하면 백업을 덮어쓸 수 있기 때문입니다. 실패는 로그와 관리자 채널(`MONITOR_ALERT_CHANNEL`)에 알립니다.
+- **실행 중:** 변경을 1초 간격으로 복제합니다. 복제 프로세스가 10분 안에 세 번 멈추면 관리자 채널에 알립니다(1시간에 한 번).
+- **종료:** 재배포·잠들기 때는 백엔드를 먼저 내리고 마지막 변경을 동기화한 뒤 끝납니다. 강제 종료되면 마지막 1초 안팎의 변경을 잃을 수 있습니다.
+- 백업 키는 Litestream 프로세스에만 넘기고, 웹·백엔드·Slack 봇에는 넘기지 않습니다.
+
+### 복구 절차
+
+로컬에서 백업을 내려받아 확인하려면 [Litestream](https://litestream.io/install/)을 설치하고 아래 설정 파일을 만듭니다. `path`의 DB 경로는 이름표 역할만 하므로 아무 경로나 써도 됩니다.
+
+```yaml
+# restore.yml
+dbs:
+  - path: ./workspace.sqlite3
+    replica:
+      type: s3
+      bucket: 버킷이름
+      path: meeting-automation
+      endpoint: https://s3.us-west-004.backblazeb2.com
+      region: us-west-004
+```
+
+`LITESTREAM_ACCESS_KEY_ID`와 `LITESTREAM_SECRET_ACCESS_KEY`를 환경변수로 둔 셸에서 실행합니다.
+
+```bash
+litestream restore -config restore.yml -o latest.sqlite3 ./workspace.sqlite3
+```
+
+특정 시각으로 되돌리려면 `-timestamp`를 붙입니다(UTC).
+
+```bash
+litestream restore -config restore.yml -timestamp 2026-10-04T00:00:00Z -o rollback.sqlite3 ./workspace.sqlite3
+```
+
+운영 서버를 그 시점으로 되돌리는 절차:
+
+1. 위처럼 `rollback.sqlite3`를 만듭니다.
+2. 이 파일을 버킷의 **새 경로**(예: `meeting-automation-restored`)로 올립니다. `restore.yml`의 `path`(DB)를 `./rollback.sqlite3`로, replica `path`를 새 경로로 바꾼 설정으로 `litestream replicate -config restore.yml`을 실행하고, `replicating to`가 나온 뒤 몇 초 후 Ctrl+C로 끝냅니다.
+3. Render에서 `LITESTREAM_PATH`를 새 경로로 바꾸고 재배포합니다. 서버가 새 경로에서 복원해 시작합니다. 원래 경로의 백업은 그대로 남습니다.
+
+모든 절차는 로컬 MinIO(S3 호환)로 확인했습니다:
+- 컨테이너를 삭제하거나 SIGKILL로 강제 종료한 뒤 새 컨테이너가 복원하는지
+- 시점 복원
+- 새 경로로 되돌리기
+- 키가 틀렸을 때 시작을 거부하는지
+
+### Render 유료 + Persistent Disk로 바꿀 때
+
+Render 서비스 **Settings**에서 인스턴스를 **Starter**로 바꾸고, **Disks**에서 디스크를 추가합니다(Mount Path `/app/data`, 1GB). 그다음 환경변수 `WORKSPACE_STORAGE=persistent`를 넣습니다.
+
+- Litestream을 그대로 켜 두면 디스크에 DB가 있으므로 복원은 건너뛰고 외부 백업만 계속합니다.
+- Blueprint로 관리하려면 `render.yaml`의 `plan`을 `starter`로 바꾸고 주석 처리된 `disk` 블록을 켭니다.
+
+### 장애 알림
+
+| 무엇이 | 어떻게 알리나 | 설정 |
+|---|---|---|
+| 서버 응답 없음(웹 또는 백엔드) | GitHub Actions가 10분마다 `/api/healthz` 확인 → 실패하면 워크플로 실패(GitHub 알림)와 Slack | 저장소 변수 `KEEPALIVE_URL`, 시크릿 `ALERT_SLACK_WEBHOOK`(Slack Incoming Webhook URL) |
+| 백업 복원 실패·복제 반복 중단 | 서버가 관리자 채널에 게시 | `SLACK_BOT_TOKEN`, `MONITOR_ALERT_CHANNEL` |
+| 처리 실패율·AI 혼잡·부정 피드백 | 품질 경고(하루 1회)·주간 품질 리포트 | `MONITOR_ALERT_CHANNEL` |
+
+서버가 완전히 멈추면 서버는 스스로 알릴 수 없으므로, 응답 없음 알림은 외부(GitHub Actions)에서 보냅니다.
+
 ## 보안 설정
 
 - **인증:** 개인 계정 + 세션 로그인. 비밀번호는 scrypt 해시, 세션 토큰은 HttpOnly·SameSite=Lax 쿠키(HTTPS에서 Secure)로만 전달되고 서버에는 해시만 저장됩니다(기본 12시간, `SESSION_TTL_HOURS`). 관리자는 사용자 추가·비활성화·역할 변경·비밀번호 재설정을 할 수 있고, 비활성화·재설정 시 해당 사용자의 세션이 즉시 끊깁니다. 로그인 실패는 IP당 15분 내 `AUTH_MAX_FAILURES`(기본 20)회, 사용자 이름당 5회로 제한합니다. 이전 `WORKSPACE_PASSWORD`만 설정된 배포는 첫 실행 때 `workspace` 관리자 계정으로 옮겨집니다.
@@ -108,6 +196,7 @@ Slack 게시가 설정되어 있으면 백엔드가 팀 시간대(`WORKSPACE_TIM
 | Gemini (분석) | 개인정보 패턴을 가린 전사문 | **무료 등급: 학습·제품 개선에 사용, 사람이 검토할 수 있음.** 유료 등급: 학습 미사용, 정책 위반 탐지용으로만 제한 기간 보관 | API 키 프로젝트에 **Cloud Billing 연결**(연결하면 유료 등급으로 처리) |
 | Claude (선택) | 개인정보 패턴을 가린 전사문 | 상용 API 약관 적용 | — |
 | Slack (선택) | 승인한 회의의 요약·결정·할 일(실명) | 내 워크스페이스 정책 적용 | 게시 채널 멤버 확인 |
+| Backblaze B2 (선택) | SQLite 백업(회의·요약·계정 해시·감사 기록, 실명 포함) | 내 계정 버킷, 비공개 | 버킷 비공개·앱 키를 그 버킷으로 제한 |
 | Jira·Confluence (선택) | 검색어(주제·할 일, 가림 표시 제거), 승인한 이슈·회의록(실명) | 내 Atlassian 사이트 정책 적용 | 프로젝트·스페이스 접근 권한 확인 |
 
 마스킹은 정규식 기반(주민번호·카드·전화·이메일·비밀번호)이며, **사람 이름은 가명(`[PERSON_n]`)으로 바꿔 전송**합니다. 가명 대상은 업로드 시 입력한 참석자 이름, "김민수 팀장"·"박지은님"처럼 호칭·직함이 붙은 한국어 이름, "Mr. Kim" 같은 영문 이름입니다. 가명과 실명의 대응표는 서버에만 저장되고, 검토 화면에서는 원래 이름으로 복원해 보여줍니다. 호칭 없이 부른 이름(참석자 목록에 없을 때), 주소, 사내 기밀은 가려지지 않습니다. 실제 회의 자료는 위 권장 설정을 마친 뒤 올리세요.
@@ -119,5 +208,6 @@ Docker를 지원하는 서버에서 동일한 구성으로 실행하고, 3001 �
 - 단일 팀 파일럿입니다. 개인 계정·역할(관리자/멤버)과 감사 기록은 있지만, 팀별 데이터 분리는 없습니다.
 - 처리 중 서버가 재시작되면 해당 작업은 실패로 표시되며 다시 업로드해야 합니다. 분석 단계 실패는 "다시 분석"으로 재시도할 수 있습니다.
 - Slack 게시 예약과 Jira·Confluence 생성 대기는 서버 메모리에 있어 재시작하면 실패로 바뀝니다(화면에서 다시 시도).
+- 데이터베이스 백업은 Litestream으로 켤 수 있습니다(위 "데이터 보존·백업"). 처리 중 녹음 파일과 분석 중간 파일은 백업하지 않습니다.
 - 근거 연결은 키워드 유사도 기반 후보이며 사실 검증을 보장하지 않습니다.
 - 목록에는 최근 100개 회의가 표시됩니다. 불특정 다수에게 공개하지 않습니다.
