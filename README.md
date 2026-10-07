@@ -157,3 +157,7 @@ docker compose -f compose.standalone.yml up --build -d
 ## 개발 과정
 
 2026년 6월~10월, 기능마다 **이슈 → 브랜치 → 작업 단위 커밋 → PR → CI** 순서로 진행했습니다(이슈 50개 이상, PR 40개 이상). 앞의 기능 구현이 끝난 뒤에는 실서버 배포와 사용 중 발견한 문제를 이슈로 남겨 하나씩 고쳤습니다. 변경 이력은 [CHANGELOG](.github/CHANGELOG.md)에 있습니다.
+
+## 라이선스
+
+이 프로젝트는 [MIT License](LICENSE)를 따릅니다.
